@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e3f46">
+<title>就是小屿</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@500;700;900&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <main class="phone" id="phone">
+    <div id="yt"><div id="ytInner"></div></div>
+    <div class="feed" id="feed"></div>
+    <div class="touch" id="touch"></div>
+    <div class="meta" id="meta"><b id="metaBy"></b><span id="metaTitle"></span><em id="metaWhy" hidden></em><a id="metaLink" target="_blank" rel="noopener">在 YouTube 打开</a></div>
+    <button class="sound" id="sound" data-act="unmute" hidden>轻点开声音</button>
+    <div class="load" id="load" hidden>正在找片…</div>
+    <button class="node" id="node" data-act="tab" data-tab="map" aria-label="当前小岛，点按打开群岛图" hidden><span id="nodeIcon"></span><span id="nodeName"></span></button>
+    <button class="pill" id="pill" data-act="tab" data-tab="moment" hidden><span id="pillName"></span><time id="pillTime"></time></button>
+    <div class="rail">
+      <button class="desk" data-act="prev" aria-label="上一条"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+      <button class="desk" data-act="next" aria-label="下一条"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button data-act="like" id="like" aria-label="收藏"><svg viewBox="0 0 24 24"><path d="M12 20s-7.500-4.600-7.500-10.200A4.300 4.300 0 0 1 12 7.200a4.300 4.300 0 0 1 7.500 2.600C19.500 15.400 12 20 12 20z"/></svg></button>
+      <button data-act="tab" data-tab="moment" aria-label="说现在想看什么"><svg viewBox="0 0 24 24"><path d="M4 5.500h16v11H10l-4.500 3.500v-3.500H4z"/></svg></button>
+      <button data-act="tab" data-tab="map" aria-label="打开群岛图"><svg viewBox="0 0 24 24"><path d="M9 14c.8-4.500 5.200-4.500 6 0z"/><path d="M3.500 18c2.800 2 5.700 2 8.500 0s5.700-2 8.500 0"/></svg></button>
+    </div>
+    <section class="card" id="card" aria-label="当前规则"><div class="band"></div><div class="count" id="cd"></div><div class="cbody" id="cbody"></div></section>
+    <div class="scrim" id="scrim"></div>
+    <section class="sheet" id="sheet" aria-label="控制面板">
+      <div class="tabs" role="tablist">
+        <button class="t" role="tab" data-act="tab" data-tab="moment">此刻</button>
+        <button class="t" role="tab" data-act="tab" data-tab="map">群岛</button>
+        <button class="t" role="tab" data-act="tab" data-tab="taste">口味</button>
+        <button class="t" role="tab" data-act="tab" data-tab="log">记录</button>
+        <button class="t" role="tab" data-act="tab" data-tab="set">设置</button>
+        <button class="close" data-act="close" aria-label="收起">×</button>
+      </div>
+      <div class="pbody" id="pbody"></div>
+      <div class="ai">
+        <div class="reply" id="reply" hidden><div><span id="replyText"></span><div class="btns" id="replyBtns"></div></div><button class="undo" data-act="undo" id="undoBtn">撤销</button></div>
+        <div class="sugs" id="sugs"></div>
+        <form class="ask" id="ask"><input id="askInput" autocomplete="off" placeholder="说一句，比如：今晚只看老电影" aria-label="说你想怎么改"><button type="submit" id="askBtn">说</button></form>
+      </div>
+    </section>
+    <div class="over" id="over" hidden></div>
+    <div class="toast" id="toast" role="status"></div>
+  </main>
+  <aside class="notes">
+    <h1>就是小屿</h1>
+    <p class="slogan">心力有限，只给热爱</p>
+    <p class="en">Attention is all you have. Spend it on what you love.</p>
+    <p>视频来自 YouTube。先开五座岛：电影、旅行、运动、居家、宠物。在“设置”里填 YouTube Key 和任意一家 AI 的 Key，AI 会用中英日三种语言替你找片、筛片。</p>
+    <ol>
+      <li>按 <kbd>↑</kbd> <kbd>↓</kbd> 或滚轮换视频。</li>
+      <li>说“今晚只看老电影，刷到 11 点半”。</li>
+      <li>说“加一座岛 咖啡”。</li>
+    </ol>
+  </aside>
+</div>
+<script src="youtube.js"></script>
+<script src="ai.js"></script>
+<script src="interpret.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
