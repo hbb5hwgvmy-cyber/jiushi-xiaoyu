@@ -35,7 +35,7 @@ const YTP={
     const create=()=>{
       YTP.player=new YT.Player('ytInner',{
         width:'100%',height:'100%',
-        playerVars:{playsinline:1,rel:0,controls:1,origin:location.origin,fs:0,enablejsapi:1},
+        playerVars:{playsinline:1,rel:0,controls:0,disablekb:1,iv_load_policy:3,origin:location.origin,fs:0,enablejsapi:1},
         events:{
           onReady(){YTP.ready=true;handlers.ready?.();if(YTP.pendingId){const i=YTP.pendingId;YTP.pendingId=null;YTP.load(i)}},
           onStateChange(e){
@@ -70,5 +70,6 @@ const YTP={
   play(){YTP.held=false;if(YTP.ready)YTP.player.playVideo?.()},
   toggle(){if(!YTP.ready)return;if(YTP.player.getPlayerState?.()===YT.PlayerState.PLAYING)YTP.pause();else YTP.play()},
   sound(){YTP.wantSound=true;if(YTP.ready){YTP.player.unMute();YTP.player.playVideo()}},
+  seek(d){if(!YTP.ready)return;try{const t=YTP.player.getCurrentTime(),n=YTP.player.getDuration();YTP.player.seekTo(Math.max(0,Math.min(n?n-1:1e9,t+d)),true)}catch(e){}},
   progress(){try{const d=YTP.player.getDuration(),t=YTP.player.getCurrentTime();return d>0?t/d:0}catch(e){return 0}},
 };

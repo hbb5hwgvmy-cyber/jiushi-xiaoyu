@@ -219,6 +219,7 @@ function showClip(){
   $('metaLink').href='https://www.youtube.com/watch?v='+encodeURIComponent(c.video.id);
   $('like').classList.toggle('on',!!liked[c.video.id]);
   $('sound').hidden=YTP.wantSound;
+  wake();
   seen[c.video.id]=Date.now();
   if(!c.moment&&!c.counted){plays.push({st:c.st,t:Date.now()});c.counted=true}
   save();
@@ -453,7 +454,7 @@ function openSheet(t){
   $('phone').classList.add('open');YTP.pause();
   renderSheet();
 }
-function closeSheet(){const was=$('phone').classList.contains('open');$('phone').classList.remove('open');if(was&&!overOpen&&started)YTP.play();$('reply').hidden=true;document.activeElement?.blur?.()}
+function closeSheet(){const was=$('phone').classList.contains('open');$('phone').classList.remove('open');if(was&&!overOpen&&started){YTP.play();wake()}$('reply').hidden=true;document.activeElement?.blur?.()}
 function refresh(){if($('phone').classList.contains('open')){renderSheet();animateView()}}
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),2600)}
 
@@ -632,13 +633,13 @@ document.addEventListener('click',e=>{
     return;
   }
   const a=b.dataset.act;
-  if(a==='next')go(1);
-  else if(a==='prev')go(-1);
-  else if(a==='close')closeSheet();
+  if(a==='close')closeSheet();
+  else if(a==='turn')turn();
   else if(a==='unmute'){YTP.sound();$('sound').hidden=true}
   else if(a==='begin'){
     closeOver(false);started=true;YTP.wantSound=true;YTP.held=false;
     showClip();const c=clips[idx];if(c.hop&&c.hop.transfer)transferCard(c);
+    try{if(!localStorage.getItem('xiaoyu.hint')){localStorage.setItem('xiaoyu.hint','1');setTimeout(()=>toast('双击左右两侧快退、快进 · 长按画面打开群岛图'),6000)}}catch(err){}
   }
   else if(a==='save-key'){
     const k=$('keyInput').value.trim();if(!k)return;
@@ -715,6 +716,7 @@ document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   if(e.key==='ArrowDown'){e.preventDefault();go(1)}
   if(e.key==='ArrowUp'){e.preventDefault();go(-1)}
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();seekBy(e.key==='ArrowLeft'?-1:1)}
   if(e.key==='Escape')closeSheet();
   if((e.key==='Enter'||e.key===' ')&&e.target.classList?.contains('tok')){e.preventDefault();e.target.click()}
 });
@@ -725,14 +727,73 @@ document.addEventListener('change',e=>{
   if(e.target.id==='aiPreset'){const s=aiForm();s.preset=e.target.value;s.base='';s.model='';AI.save(s);renderSheet()}
 });
 
-const touch=$('touch');let sy=null,sx=0;
-touch.addEventListener('pointerdown',e=>{sy=e.clientY;sx=e.clientX});
-touch.addEventListener('pointerup',e=>{
-  if(sy===null)return;
-  const dy=e.clientY-sy,dx=e.clientX-sx;sy=null;
-  if(Math.abs(dy)>48&&Math.abs(dy)>Math.abs(dx))go(dy<0?1:-1);
-  else if(Math.abs(dy)<10&&Math.abs(dx)<10&&started){if(!YTP.wantSound){YTP.sound();$('sound').hidden=true}else YTP.toggle()}
+/* Picture first: buttons and captions show for 5 s with each video, then leave; a tap brings them back.
+   Gestures replace buttons: swipe up/down changes video, double-tap left/right seeks 10 s, long-press opens the island map. */
+const CALM_MS=5000,SEEK_S=10;
+function wake(){
+  const ph=$('phone');ph.classList.remove('calm');clearTimeout(wake.t);
+  wake.t=setTimeout(function rest(){if(YTP.held&&started&&!overOpen){wake.t=setTimeout(rest,CALM_MS);return}ph.classList.add('calm')},CALM_MS);
+}
+function seekBy(side){
+  YTP.seek(side*SEEK_S);
+  const el=$('seek');el.textContent=side<0?`« ${SEEK_S} 秒`:`${SEEK_S} 秒 »`;el.className='seek show '+(side<0?'l':'r');
+  clearTimeout(seekBy.t);seekBy.t=setTimeout(()=>el.className='seek',600);
+}
+/* Landscape: real fullscreen + orientation lock where the browser allows it (Android, desktop);
+   otherwise (iPhone Safari has no element fullscreen) rotate the frame with CSS. */
+async function turn(){
+  const ph=$('phone');
+  if(ph.classList.contains('rot')){ph.classList.remove('rot');return}
+  if(document.fullscreenElement){try{screen.orientation?.unlock?.()}catch(e){}document.exitFullscreen?.();return}
+  if(innerWidth>innerHeight&&!ph.requestFullscreen){toast('已经是横屏');return}
+  if(ph.requestFullscreen){
+    try{
+      await ph.requestFullscreen({navigationUI:'hide'});
+      try{await screen.orientation.lock('landscape')}catch(e){}
+      if(innerWidth>=innerHeight||screen.orientation?.type?.startsWith('landscape'))return;
+      await document.exitFullscreen();
+    }catch(e){}
+  }
+  ph.classList.add('rot');
+}
+/* pointer position in the frame's own coordinates, so gestures still read right while it is rotated */
+function local(e){
+  const r=$('phone').getBoundingClientRect();
+  return $('phone').classList.contains('rot')?{x:e.clientY-r.top,y:r.right-e.clientX,w:r.height}:{x:e.clientX-r.left,y:e.clientY-r.top,w:r.width};
+}
+const touch=$('touch');let t0=null,press=0,tapT=0,lastTap=null,seekUntil=0;
+touch.addEventListener('contextmenu',e=>e.preventDefault());
+touch.addEventListener('pointerdown',e=>{
+  t0=local(e);clearTimeout(press);
+  press=setTimeout(()=>{t0=null;clearTimeout(tapT);lastTap=null;if(started&&!overOpen)openSheet('map')},550);
 });
+touch.addEventListener('pointermove',e=>{if(!t0)return;const p=local(e);if(Math.abs(p.x-t0.x)>10||Math.abs(p.y-t0.y)>10)clearTimeout(press)});
+touch.addEventListener('pointercancel',()=>{t0=null;clearTimeout(press)});
+touch.addEventListener('pointerup',e=>{
+  clearTimeout(press);
+  if(!t0)return;
+  const p=local(e),dy=p.y-t0.y,dx=p.x-t0.x;t0=null;
+  if(Math.abs(dy)>48&&Math.abs(dy)>Math.abs(dx)){go(dy<0?1:-1);return}
+  if(Math.abs(dy)>=10||Math.abs(dx)>=10||!started)return;
+  const side=p.x<p.w/3?-1:p.x>p.w*2/3?1:0,now=Date.now();
+  /* after a double-tap seek, each further tap on that side seeks again, like the phone players */
+  if(side&&now<seekUntil&&lastTap?.side===side){seekBy(side);seekUntil=now+700;lastTap={side,at:now};return}
+  if(lastTap&&now-lastTap.at<300&&lastTap.side===side){
+    clearTimeout(tapT);lastTap=null;
+    if(side){seekBy(side);seekUntil=now+700;lastTap={side,at:now}}
+    return;
+  }
+  lastTap={side,at:now};clearTimeout(tapT);
+  tapT=setTimeout(()=>{
+    lastTap=null;
+    const ph=$('phone');
+    if(!YTP.wantSound){YTP.sound();$('sound').hidden=true}
+    else if(!ph.classList.contains('calm'))YTP.toggle();
+    wake();
+  },280);
+});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)try{screen.orientation?.unlock?.()}catch(e){}});
+setInterval(()=>{if(!$('phone').classList.contains('calm'))$('prog').firstElementChild.style.transform=`scaleX(${YTP.progress()})`},400);
 let wheelAt=0;
 $('phone').addEventListener('wheel',e=>{
   if(e.target.closest('.sheet,.over'))return;
@@ -747,7 +808,7 @@ YTP.init({
   playing(){dropCover()},
   ended(){if(!overOpen&&!$('phone').classList.contains('open'))go(1)},
   error(){if(started&&!overOpen)go(1)},
-  muted(){$('sound').hidden=false},
+  muted(){$('sound').hidden=false;wake()},
   loadFailed(){toast('YouTube 播放器加载失败，请检查网络')},
 });
 renderSheet();
