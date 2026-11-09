@@ -6,7 +6,8 @@ const YTAPI={
     try{const u=JSON.parse(localStorage.getItem('tikfix.units')||'{}');return u.day===YTAPI.today()?u.n:0}catch(e){return 0}
   },
   addUnits(n){try{localStorage.setItem('tikfix.units',JSON.stringify({day:YTAPI.today(),n:YTAPI.units()+n}))}catch(e){}},
-  today(){return new Date().toDateString()},
+  /* quota resets at midnight Pacific time, so the day is counted there */
+  today(){return new Date().toLocaleDateString('en-US',{timeZone:'America/Los_Angeles'})},
   /* search.list costs 100 quota units per call, so callers cache results. */
   async search({q,pageToken,lang='zh',duration,region}){
     const p=new URLSearchParams({part:'snippet',type:'video',videoEmbeddable:'true',videoSyndicated:'true',safeSearch:'moderate',maxResults:'50',q,key:YTAPI.key()});
@@ -28,6 +29,12 @@ const YTAPI={
   },
   /* A channel's latest uploads: playlistItems (1 unit) + videos for length and embeddability (1 unit),
      against 100 units for one search. Keeps videos up to maxSec long that can play here. */
+  /* channel by @handle: 1 unit; null when there is no such channel */
+  async channel(handle){
+    const r=await fetch('https://www.googleapis.com/youtube/v3/channels?'+new URLSearchParams({part:'snippet',forHandle:handle,key:YTAPI.key()}));
+    const d=await r.json().catch(()=>({}));if(!r.ok)return null;YTAPI.addUnits(1);
+    const c=d.items?.[0];return c?{id:c.id,title:decodeEntities(c.snippet?.title||'')}:null;
+  },
   async uploads(channelId,pageToken,maxSec=240){
     const get=async(path,params)=>{
       const r=await fetch(`https://www.googleapis.com/youtube/v3/${path}?`+new URLSearchParams({...params,key:YTAPI.key()}));

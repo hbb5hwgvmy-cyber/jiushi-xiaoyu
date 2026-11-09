@@ -34,7 +34,7 @@ const QUERY={
   travel:[['旅行 vlog 城市漫步','zh'],['city walk travel','en'],['旅 vlog 散歩','ja']],
   sport:[['跑步 健身 日常','zh'],['running training vlog','en'],['ランニング 習慣','ja']],
 };
-const POOL_TTL=24*3600*1000;
+const POOL_TTL=3*24*3600*1000;
 /* Content region: whole world, or one country. A country narrows YouTube search (regionCode + its language) and,
    with AI on, the search words are written in that country's language about things made there.
    YouTube has no region code for mainland China. */
@@ -125,17 +125,35 @@ ${list}`);
   return (d.keep||[]).filter(k=>k&&by[k.id]).map(k=>({...by[k.id],zh:String(k.zh||'').slice(0,60),why:String(k.why||'').slice(0,30)}));
 }
 /* Islands keep a few videos ready so swiping never waits on AI.
-   - Each island's pool is topped up in the background (READY videos), one search + one AI screen at a time.
-   - Cold start (empty pool): the first search result plays at once, AI screens the rest of that batch in the background.
-   - The first search uses the fixed words; AI writes better words in the background for the following searches.
-   - Quota: a search costs 100 units however many results it asks for. The channels of the videos AI keeps are
-     remembered, and most refills read those channels' latest uploads instead (2 units); every 4th refill is a
-     new search so new channels keep turning up. */
-const READY=3,filling={};
+   - Each island's pool is topped up in the background (READY videos), one fetch + one AI screen at a time.
+   - Cold start (empty pool): the first result plays at once, AI screens the rest of that batch in the background.
+   Quota (10,000 units a day, reset at midnight Pacific): a search costs 100, everything else 1-2. So:
+   - Videos mostly come from channels: AI names good channels per island (each checked, 1 unit) and the channels of
+     videos AI keeps are remembered; a refill reads one channel's latest uploads (2 units).
+   - A search (100) only happens when an island is short of channels, at most once per island per day,
+     and never after 8,000 units in a day.
+   - Channels learn from you: quick skips push a channel down and after 3 with no full watch it is dropped;
+     videos watched through push it up. */
+const READY=3,filling={},SEARCH_STOP=8000,MIN_CHANNELS=3;
+let chanScore=(()=>{try{return JSON.parse(localStorage.getItem('xiaoyu.chan')||'{}')}catch(e){return {}}})();
+const saveChan=()=>{try{localStorage.setItem('xiaoyu.chan',JSON.stringify(chanScore))}catch(e){}};
+const chanWeight=cid=>{const c=chanScore[cid]||{};return (1+(c.good||0))/(1+(c.skip||0))};
+const chanBanned=cid=>{const c=chanScore[cid]||{};return (c.skip||0)>=3&&!(c.good||0)};
 function poolOf(id){
   let p=pools[id];
-  if(!p||(Date.now()-p.at>POOL_TTL&&!p.items.length))p=pools[id]={items:[],tokens:{},qi:0,at:Date.now(),queries:null,done:{}};
+  if(!p||(Date.now()-p.at>POOL_TTL&&!p.items.length))p=pools[id]={items:[],tokens:{},qi:0,at:Date.now(),queries:null,done:{},channels:p?.channels||{}};
+  p.channels=p.channels||{};
   return p;
+}
+function addChannel(pool,cid,from){if(cid&&!pool.channels[cid]&&!chanBanned(cid)&&Object.keys(pool.channels).length<16)pool.channels[cid]={token:null,done:false,from}}
+async function aiChannels(id){
+  const n=st(id),R=region(),pool=poolOf(id);
+  const d=await AI.json(`为短视频应用推荐 YouTube 频道。主题：${n.name}（${n.en||n.name}）${R.id?`，只要${R.name}本地的频道`:''}。用户喜欢：${likeWords().join('、')||'无'}；避开：${avoidWords().join('、')||'无'}。
+列出 8 个真实存在、持续更新、做这类短视频且有质感的频道，用它们的 @handle。不确定的不要写。
+只回复 JSON：{"channels":["@handle1","@handle2"]}`);
+  const hs=(d.channels||[]).map(h=>String(h).trim()).filter(h=>/^@[\w.\-]{2,40}$/.test(h)).slice(0,8);
+  for(const h of hs){const c=await YTAPI.channel(h).catch(()=>null);if(c)addChannel(pool,c.id,'ai')}
+  savePools();
 }
 async function searchBatch(id){
   const n=st(id),pool=poolOf(id);
@@ -146,21 +164,25 @@ async function searchBatch(id){
   if(AI.ready()&&!pool.aiAsked){
     pool.aiAsked=true;
     aiQueries(n).then(q=>{const p=poolOf(id);p.queries=q;p.byAI=true;p.qi=0;p.done={};p.tokens={};savePools()}).catch(()=>{pool.aiAsked=false});
+    aiChannels(id).catch(()=>{});
   }
-  const chans=Object.entries(pool.channels||{}).filter(([,c])=>!c.done);
-  pool.n=(pool.n||0)+1;
+  const chans=Object.entries(pool.channels).filter(([cid,c])=>!c.done&&!chanBanned(cid));
   const open=pool.queries.map((q,i)=>i).filter(i=>!pool.done[i]);
-  if(chans.length&&(pool.n%4||!open.length)){
-    const [cid,c]=chans[pool.n%chans.length];
-    const r=await YTAPI.uploads(cid,c.token);
-    c.token=r.next;if(!r.next||!r.items.length)c.done=true;pool.at=Date.now();savePools();
-    return r.items;
+  const maySearch=open.length&&pool.searchDay!==YTAPI.today()&&YTAPI.units()<SEARCH_STOP;
+  if(chans.length&&!(chans.length<MIN_CHANNELS&&maySearch)){
+    /* weighted pick: channels you watch through come up more often */
+    let r=Math.random()*chans.reduce((a,[cid])=>a+chanWeight(cid),0),pick=chans[0];
+    for(const ch of chans){r-=chanWeight(ch[0]);if(r<=0){pick=ch;break}}
+    const [cid,c]=pick;
+    const res=await YTAPI.uploads(cid,c.token);
+    c.token=res.next;if(!res.next||!res.items.length)c.done=true;pool.at=Date.now();savePools();
+    return res.items;
   }
-  if(!open.length)return null;
+  if(!maySearch)return null;
   const qi=open[pool.qi%open.length];pool.qi++;
   const [q,lang]=pool.queries[qi];
   const r=await YTAPI.search({q,lang,region:region().id,pageToken:pool.tokens[qi]||undefined,duration:'short'});
-  pool.tokens[qi]=r.next;if(!r.next)pool.done[qi]=true;pool.at=Date.now();savePools();
+  pool.tokens[qi]=r.next;if(!r.next)pool.done[qi]=true;pool.searchDay=YTAPI.today();pool.at=Date.now();savePools();
   return r.items;
 }
 async function screenInto(id,items){
@@ -168,8 +190,7 @@ async function screenInto(id,items){
   if(AI.ready()&&items.length){try{kept=await aiScreen(items,st(id))}catch(e){}}
   const pool=poolOf(id),have=new Set(pool.items.map(v=>v.id));
   pool.items=pool.items.concat(kept.filter(v=>!have.has(v.id)));
-  pool.channels=pool.channels||{};
-  for(const v of (AI.ready()?kept:ranked(kept)).slice(0,6))if(v.channelId&&!pool.channels[v.channelId]&&Object.keys(pool.channels).length<12)pool.channels[v.channelId]={token:null,done:false};
+  for(const v of (AI.ready()?kept:ranked(kept)).slice(0,6))addChannel(pool,v.channelId,'kept');
   savePools();
 }
 function topUp(id){
@@ -307,6 +328,13 @@ function feedback(){
   const c=clips[idx];if(!c)return;
   const dwell=Date.now()-enter;
   if(c.moment){if(moment)moment.dwell[c.tag]=(moment.dwell[c.tag]||0)+dwell;return}
+  const cid=c.video.channelId;
+  if(cid&&!c.scored){
+    const sc=chanScore[cid]=chanScore[cid]||{good:0,skip:0};
+    if(dwell<2000){sc.skip++;c.scored=true}
+    else if(c.ended||YTP.progress()>.8){sc.good++;c.scored=true}
+    saveChan();
+  }
   const e=c.hop&&c.hop.edge&&edges.find(x=>x.from+'>'+x.to===c.hop.edge);
   if(e){if(dwell>=6000)e.w=Math.min(2,+(e.w+.1).toFixed(2));else if(dwell<2000)e.w=Math.max(.2,+(e.w-.1).toFixed(2));save()}
 }
@@ -564,7 +592,7 @@ function settingsHTML(){
   const k=YTAPI.key(),s=AI.load(),p=AI_PROVIDERS[s.provider]||AI_PROVIDERS.none,opt=(v,t,on)=>`<option value="${esc(v)}" ${on?'selected':''}>${esc(t)}</option>`;
   if(setPage==='yt')return backBar('YouTube')+`<p class="dim">用你自己的 YouTube Data API Key 搜视频。只保存在这台手机上。</p>
 <div class="setting"><input id="ytKey" autocomplete="off" placeholder="${k?'已设置，粘贴新的可替换':'粘贴 YouTube Data API Key'}" aria-label="YouTube API Key"><div class="btns"><button class="btn prime" data-act="save-yt">保存</button></div></div>
-<p class="dim">今天估算已用配额 ${YTAPI.units()} / 10000 单位，每次搜索 100 单位。</p>`;
+<p class="dim">今天估算已用 ${YTAPI.units()} / 10000 单位。额度每天免费 1 万，北京时间下午 4 点重置（夏令时 3 点）。</p><p class="dim">搜索一次 100 单位；读一个频道的新视频 2 单位，查一个频道 1 单位。所以小屿主要从频道补片，每座岛每天最多搜索 1 次，当天用到 8000 就不再搜索。</p>`;
   if(setPage==='region')return backBar('内容地区')+`<p class="dim">选一个国家，就只找那里的本地内容；选全世界则不限。开了 AI 时，搜索词会用当地语言写，标题会翻译成中文。</p><div class="group">${REGIONS.map(r=>`<button class="row" data-act="region" data-r="${r.id}"><span class="rt">${r.name}</span><span class="rv">${r.en||''}</span><span class="rc">${r.id===region().id?'✓':''}</span></button>`).join('')}</div>`;
   if(setPage==='ai'){
     const compat=s.provider==='compat',preset=AI_PRESETS.find(x=>x.id===s.preset)||AI_PRESETS[0];
@@ -986,7 +1014,7 @@ load();
 YTP.init({
   playing(){dropCover();if(!hold)YTP.rate(speed);if(YTP.cc)YTP.captions()},
   noCaptions(){toast('这条视频没有字幕')},
-  ended(){if(!overOpen&&!$('phone').classList.contains('open'))go(1)},
+  ended(){if(clips[idx])clips[idx].ended=true;if(!overOpen&&!$('phone').classList.contains('open'))go(1)},
   error(){if(started&&!overOpen)go(1)},
   muted(){syncMute();wake()},
   loadFailed(){toast('YouTube 播放器加载失败，请检查网络')},
