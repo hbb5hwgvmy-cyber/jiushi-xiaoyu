@@ -23,10 +23,29 @@ const YTAPI={
     }
     YTAPI.addUnits(100);
     return {next:d.nextPageToken||null,items:(d.items||[]).filter(x=>x.id?.videoId).map(x=>({
-      id:x.id.videoId,title:decodeEntities(x.snippet.title),channel:decodeEntities(x.snippet.channelTitle),desc:decodeEntities(x.snippet.description||'')
+      id:x.id.videoId,title:decodeEntities(x.snippet.title),channel:decodeEntities(x.snippet.channelTitle),channelId:x.snippet.channelId,desc:decodeEntities(x.snippet.description||'')
+    }))};
+  },
+  /* A channel's latest uploads: playlistItems (1 unit) + videos for length and embeddability (1 unit),
+     against 100 units for one search. Keeps videos up to maxSec long that can play here. */
+  async uploads(channelId,pageToken,maxSec=240){
+    const get=async(path,params)=>{
+      const r=await fetch(`https://www.googleapis.com/youtube/v3/${path}?`+new URLSearchParams({...params,key:YTAPI.key()}));
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){const e=new Error(d.error?.message||('HTTP '+r.status));e.reason=d.error?.errors?.[0]?.reason||String(r.status);throw e}
+      YTAPI.addUnits(1);return d;
+    };
+    const p={part:'snippet',maxResults:'50',playlistId:'UU'+channelId.slice(2)};if(pageToken)p.pageToken=pageToken;
+    const d=await get('playlistItems',p),snip=(d.items||[]).map(x=>x.snippet).filter(s=>s?.resourceId?.videoId);
+    if(!snip.length)return {next:null,items:[]};
+    const v=await get('videos',{part:'contentDetails,status',id:snip.map(s=>s.resourceId.videoId).join(',')});
+    const ok=new Set((v.items||[]).filter(x=>x.status?.embeddable!==false&&secs(x.contentDetails?.duration)<=maxSec).map(x=>x.id));
+    return {next:d.nextPageToken||null,items:snip.filter(s=>ok.has(s.resourceId.videoId)).map(s=>({
+      id:s.resourceId.videoId,title:decodeEntities(s.title),channel:decodeEntities(s.channelTitle||''),channelId,desc:decodeEntities(s.description||'')
     }))};
   },
 };
+const secs=iso=>{const m=/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(iso||'');return m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):Infinity};
 function decodeEntities(t){const e=document.createElement('textarea');e.innerHTML=t;return e.value}
 
 const YTP={

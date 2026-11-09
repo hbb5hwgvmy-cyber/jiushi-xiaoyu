@@ -117,7 +117,7 @@ async function aiScreen(items,n){
   const likes=tastes.filter(t=>t.like).map(t=>t.tag),avoids=tastes.filter(t=>!t.like).map(t=>t.tag);
   const list=items.map(v=>`${v.id} | ${v.title} | ${v.channel} | ${v.desc.slice(0,100).replace(/\s+/g,' ')}`).join('\n');
   const d=await AI.json(`你替用户筛短视频，主题岛：${n.name}（${n.en||n.name}）。用户喜欢：${likes.join('、')||'无'}；避开：${avoids.join('、')||'无'}。
-${region().id?`用户只想看${region().name}本地的内容，明显不是${region().name}的去掉。`:''}下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。挑出最多 10 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
+${region().id?`用户只想看${region().name}本地的内容，明显不是${region().name}的去掉。`:''}下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。挑出最多 20 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
 只回复 JSON：{"keep":[{"id":"视频 id","zh":"中文标题（原标题是中文就照抄）","why":"不超过 12 个字的推荐理由"}]}
 
 ${list}`);
@@ -127,7 +127,10 @@ ${list}`);
 /* Islands keep a few videos ready so swiping never waits on AI.
    - Each island's pool is topped up in the background (READY videos), one search + one AI screen at a time.
    - Cold start (empty pool): the first search result plays at once, AI screens the rest of that batch in the background.
-   - The first search uses the fixed words; AI writes better words in the background for the following searches. */
+   - The first search uses the fixed words; AI writes better words in the background for the following searches.
+   - Quota: a search costs 100 units however many results it asks for. The channels of the videos AI keeps are
+     remembered, and most refills read those channels' latest uploads instead (2 units); every 4th refill is a
+     new search so new channels keep turning up. */
 const READY=3,filling={};
 function poolOf(id){
   let p=pools[id];
@@ -144,7 +147,15 @@ async function searchBatch(id){
     pool.aiAsked=true;
     aiQueries(n).then(q=>{const p=poolOf(id);p.queries=q;p.byAI=true;p.qi=0;p.done={};p.tokens={};savePools()}).catch(()=>{pool.aiAsked=false});
   }
+  const chans=Object.entries(pool.channels||{}).filter(([,c])=>!c.done);
+  pool.n=(pool.n||0)+1;
   const open=pool.queries.map((q,i)=>i).filter(i=>!pool.done[i]);
+  if(chans.length&&(pool.n%4||!open.length)){
+    const [cid,c]=chans[pool.n%chans.length];
+    const r=await YTAPI.uploads(cid,c.token);
+    c.token=r.next;if(!r.next||!r.items.length)c.done=true;pool.at=Date.now();savePools();
+    return r.items;
+  }
   if(!open.length)return null;
   const qi=open[pool.qi%open.length];pool.qi++;
   const [q,lang]=pool.queries[qi];
@@ -156,7 +167,10 @@ async function screenInto(id,items){
   let kept=items;
   if(AI.ready()&&items.length){try{kept=await aiScreen(items,st(id))}catch(e){}}
   const pool=poolOf(id),have=new Set(pool.items.map(v=>v.id));
-  pool.items=pool.items.concat(kept.filter(v=>!have.has(v.id)));savePools();
+  pool.items=pool.items.concat(kept.filter(v=>!have.has(v.id)));
+  pool.channels=pool.channels||{};
+  for(const v of (AI.ready()?kept:ranked(kept)).slice(0,6))if(v.channelId&&!pool.channels[v.channelId]&&Object.keys(pool.channels).length<12)pool.channels[v.channelId]={token:null,done:false};
+  savePools();
 }
 function topUp(id){
   if(filling[id]||!st(id)||!YTAPI.key())return filling[id];
