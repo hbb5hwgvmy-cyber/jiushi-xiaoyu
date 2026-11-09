@@ -91,6 +91,15 @@ function nowOk(when){
 const PERIOD={day:864e5,week:7*864e5,month:30*864e5};
 const played=n=>{const since=n.cap?Date.now()-PERIOD[n.cap.k]:0;return plays.filter(p=>p.st===n.id&&p.t>=since).length};
 const eligible=n=>!n.paused&&!emptyStations.has(n.id)&&nowOk(n.when)&&(!n.cap||played(n)<n.cap.n);
+/* why swiping had to leave an island (it otherwise stays put), told to the viewer when it sails on */
+function leftBecause(n){
+  if(!n)return '';
+  if(n.paused)return `${n.name}已停航`;
+  if(n.cap&&played(n)>=n.cap.n)return `${n.name}${{day:'今天',week:'这周',month:'这个月'}[n.cap.k]}的 ${n.cap.n} 条看完了`;
+  if(!nowOk(n.when))return `${n.name}${n.when}开放`;
+  if(emptyStations.has(n.id))return `${n.name}${region().id?`在${region().name}`:''}暂时没有更多视频`;
+  return '';
+}
 const linesAt=id=>LINES.filter(l=>l.stops.includes(id));
 
 /* videos */
@@ -386,6 +395,7 @@ async function go(dir){
     if(c.moment){if(cardState!=='off')hideCard();return}
     sel={type:'st',id:c.st};
     if(dir>0&&c.hop&&c.hop.transfer)transferCard(c);else if(cardState!=='off')hideCard();
+    if(dir>0&&c.hop&&c.hop.from&&c.hop.type!=='手动'){const why=leftBecause(st(c.hop.from));if(why)toast(`${why}，去${st(c.st).name}`)}
   }catch(e){/* apiFail already told the viewer */}
   finally{moving=false}
 }
@@ -1082,6 +1092,15 @@ $('phone').addEventListener('wheel',e=>{
 },{passive:false});
 
 setInterval(updatePill,1000);
+/* while a YouTube ad runs, the lower part of the screen goes to YouTube so its Skip button works;
+   swiping still works in the top part */
+let adToldFor=null;
+setInterval(()=>{
+  const on=started&&!overOpen&&!$('phone').classList.contains('open')&&YTP.adNow();
+  if(on===$('phone').classList.contains('ad'))return;
+  $('phone').classList.toggle('ad',on);
+  if(on){hideCard();if(adToldFor!==YTP.expectId){adToldFor=YTP.expectId;toast('广告：点 YouTube 的“跳过”，或在屏幕上方上下滑换片')}}
+},500);
 load();
 YTP.init({
   playing(){dropCover();if(!hold)YTP.rate(speed);if(YTP.cc)YTP.captions()},

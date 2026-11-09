@@ -96,6 +96,7 @@ const YTP={
     if(!YTP.ready){YTP.pendingId=id;return}
     if(YTP.wantSound)YTP.player.unMute();else YTP.player.mute();
     YTP.player.loadVideoById(id);
+    YTP.expectId=id;YTP.loadedAt=Date.now();YTP.started=false;
     /* A browser may refuse sound without a recent tap: fall back to muted play. */
     clearTimeout(YTP.guard);
     YTP.guard=setTimeout(()=>{
@@ -105,6 +106,19 @@ const YTP={
     },1800);
   },
   held:false,
+  /* YouTube's own ads play inside the embed and their 'Skip' button is in YouTube's frame, under our touch layer.
+     The API has no ad event, so an ad is assumed when the player reports another video than the one loaded,
+     or when the video's own clock is still at 0 more than 2.5 s after loading (the ad runs, the video waits).
+     Once the video's clock has moved, only the first sign counts (a mid-roll). */
+  adNow(){
+    if(!YTP.ready||!YTP.expectId||YTP.held)return false;
+    try{
+      const d=YTP.player.getVideoData?.(),t=YTP.player.getCurrentTime?.()||0;
+      if(d&&d.video_id&&d.video_id!==YTP.expectId)return true;
+      if(t>0.5)YTP.started=true;
+      return !YTP.started&&t<0.3&&Date.now()-YTP.loadedAt>2500&&YTP.player.getPlayerState?.()!==YT.PlayerState.PAUSED;
+    }catch(e){return false}
+  },
   pause(){YTP.held=true;if(YTP.ready)YTP.player.pauseVideo?.()},
   play(){YTP.held=false;if(YTP.ready)YTP.player.playVideo?.()},
   toggle(){if(!YTP.ready)return;if(YTP.player.getPlayerState?.()===YT.PlayerState.PLAYING)YTP.pause();else YTP.play()},

@@ -347,3 +347,7 @@ body{margin:0}
 .gate.day .gbtn.ghost{background:none;color:#c1c5d2;font-weight:500}
 .gate.day.leave{animation:dawn .4s forwards}
 @keyframes dawn{to{filter:brightness(1.8);opacity:1}}
+
+/* a YouTube ad is playing: let taps below the top strip reach YouTube (its Skip button), hide our controls there */
+.phone.ad .touch{bottom:auto;height:28%}
+.phone.ad :is(.rail,.prog,.sound,.card),.phone.ad>.meta{opacity:0;pointer-events:none}
