@@ -244,3 +244,9 @@ body{margin:0}
 .rail #ccBtn.on{background:rgba(255,255,255,.85)}.rail #ccBtn.on svg{stroke:#14161f;fill:none}
 .nb{padding:0;border:0;cursor:pointer}
 .toast{top:calc(96px + env(safe-area-inset-top,0px))}
+
+#muteBtn .x{display:none}#muteBtn.on .x{display:inline}#muteBtn.on .wave{display:none}
+.rail button#muteBtn.on svg{fill:none;stroke:#fff}
+.pop{bottom:auto;transform:translateY(-35%)}
+.phone.rot .rail,.phone:fullscreen .rail{gap:6px}.phone.rot .rail button,.phone:fullscreen .rail button{width:38px;height:38px}
+@media (max-height:520px){.rail{gap:6px}.rail button{width:38px;height:38px}}

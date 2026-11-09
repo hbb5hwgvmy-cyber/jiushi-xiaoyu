@@ -70,6 +70,7 @@ const YTP={
   pause(){YTP.held=true;if(YTP.ready)YTP.player.pauseVideo?.()},
   play(){YTP.held=false;if(YTP.ready)YTP.player.playVideo?.()},
   toggle(){if(!YTP.ready)return;if(YTP.player.getPlayerState?.()===YT.PlayerState.PLAYING)YTP.pause();else YTP.play()},
+  mute(){YTP.wantSound=false;if(YTP.ready)YTP.player.mute()},
   sound(){YTP.wantSound=true;if(YTP.ready){YTP.player.unMute();YTP.player.playVideo()}},
   /* The caption calls (loadModule / getOption / setOption 'captions') are not in YouTube's documented API but work
      in the embed; a Chinese track is used when there is one, otherwise YouTube's translation into zh-Hans. */

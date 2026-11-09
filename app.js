@@ -117,46 +117,74 @@ async function aiScreen(items,n){
   const likes=tastes.filter(t=>t.like).map(t=>t.tag),avoids=tastes.filter(t=>!t.like).map(t=>t.tag);
   const list=items.map(v=>`${v.id} | ${v.title} | ${v.channel} | ${v.desc.slice(0,100).replace(/\s+/g,' ')}`).join('\n');
   const d=await AI.json(`你替用户筛短视频，主题岛：${n.name}（${n.en||n.name}）。用户喜欢：${likes.join('、')||'无'}；避开：${avoids.join('、')||'无'}。
-${region().id?`用户只想看${region().name}本地的内容，明显不是${region().name}的去掉。`:''}下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。挑出最多 15 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
-只回复 JSON：{"keep":[{"id":"视频 id","zh":"中文标题（原标题是中文就照抄）","why":"不超过 16 个字的推荐理由"}]}
+${region().id?`用户只想看${region().name}本地的内容，明显不是${region().name}的去掉。`:''}下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。挑出最多 10 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
+只回复 JSON：{"keep":[{"id":"视频 id","zh":"中文标题（原标题是中文就照抄）","why":"不超过 12 个字的推荐理由"}]}
 
 ${list}`);
   const by=Object.fromEntries(items.map(v=>[v.id,v]));
   return (d.keep||[]).filter(k=>k&&by[k.id]).map(k=>({...by[k.id],zh:String(k.zh||'').slice(0,60),why:String(k.why||'').slice(0,30)}));
 }
-async function nextFromStation(id){
-  const n=st(id);
-  let pool=pools[id];
-  if(!pool||Date.now()-pool.at>POOL_TTL)pool=pools[id]={items:[],tokens:{},qi:0,at:0,queries:null,done:{}};
-  const useAI=AI.ready();
+/* Islands keep a few videos ready so swiping never waits on AI.
+   - Each island's pool is topped up in the background (READY videos), one search + one AI screen at a time.
+   - Cold start (empty pool): the first search result plays at once, AI screens the rest of that batch in the background.
+   - The first search uses the fixed words; AI writes better words in the background for the following searches. */
+const READY=3,filling={};
+function poolOf(id){
+  let p=pools[id];
+  if(!p||(Date.now()-p.at>POOL_TTL&&!p.items.length))p=pools[id]={items:[],tokens:{},qi:0,at:Date.now(),queries:null,done:{}};
+  return p;
+}
+async function searchBatch(id){
+  const n=st(id),pool=poolOf(id);
   if(!pool.queries){
     const R=region(),base=QUERY[id]||[[n.name,'zh'],[n.en||n.name,'en']];
     pool.queries=!R.id?base:R.lang==='ja'?base.filter(q=>q[1]==='ja'):R.lang.startsWith('zh')?base.filter(q=>q[1]==='zh'):[[`${(base.find(q=>q[1]==='en')||base[0])[0]} ${R.en}`,R.lang]];
-    if(useAI){setLoading(true,'AI 正在想搜索词…');try{pool.queries=await aiQueries(n);pool.byAI=true}catch(e){toast('AI 没有回应，先用默认搜索词')}finally{setLoading(false)}}
   }
-  for(let round=0;round<=pool.queries.length;round++){
-    const list=ranked(pool.items);
-    if(list.length){
-      const v=list[0];pool.items=pool.items.filter(x=>x.id!==v.id);savePools();return v;
-    }
-    const open=pool.queries.map((q,i)=>i).filter(i=>!pool.done[i]);
-    if(round===pool.queries.length||!open.length)break;
-    const qi=open[pool.qi%open.length];pool.qi++;
-    const [q,lang]=pool.queries[qi];
+  if(AI.ready()&&!pool.aiAsked){
+    pool.aiAsked=true;
+    aiQueries(n).then(q=>{const p=poolOf(id);p.queries=q;p.byAI=true;p.qi=0;p.done={};p.tokens={};savePools()}).catch(()=>{pool.aiAsked=false});
+  }
+  const open=pool.queries.map((q,i)=>i).filter(i=>!pool.done[i]);
+  if(!open.length)return null;
+  const qi=open[pool.qi%open.length];pool.qi++;
+  const [q,lang]=pool.queries[qi];
+  const r=await YTAPI.search({q,lang,region:region().id,pageToken:pool.tokens[qi]||undefined,duration:'short'});
+  pool.tokens[qi]=r.next;if(!r.next)pool.done[qi]=true;pool.at=Date.now();savePools();
+  return r.items;
+}
+async function screenInto(id,items){
+  let kept=items;
+  if(AI.ready()&&items.length){try{kept=await aiScreen(items,st(id))}catch(e){}}
+  const pool=poolOf(id),have=new Set(pool.items.map(v=>v.id));
+  pool.items=pool.items.concat(kept.filter(v=>!have.has(v.id)));savePools();
+}
+function topUp(id){
+  if(filling[id]||!st(id)||!YTAPI.key())return filling[id];
+  if(ranked(poolOf(id).items).length>=READY)return null;
+  filling[id]=(async()=>{const raw=await searchBatch(id);if(raw)await screenInto(id,raw)})().catch(()=>{}).finally(()=>{delete filling[id]});
+  return filling[id];
+}
+/* after the first video starts, quietly prepare every island that is open now, one at a time */
+async function warmAll(){
+  for(const n of stations.filter(eligible)){try{await topUp(n.id)}catch(e){}}
+}
+async function nextFromStation(id){
+  const pool=poolOf(id);
+  const take=()=>{const v=ranked(pool.items)[0];if(v){pool.items=pool.items.filter(x=>x.id!==v.id);savePools()}return v||null};
+  let v=take();
+  if(!v&&filling[id]){setLoading(true,AI.ready()?'AI 正在替你筛…':'正在找片…');await filling[id];setLoading(false);v=take()}
+  for(let round=0;!v&&round<4;round++){
     setLoading(true,'正在找片…');
-    let found;
-    try{
-      const r=await YTAPI.search({q,lang,region:region().id,pageToken:pool.tokens[qi]||undefined,duration:'short'});
-      pool.tokens[qi]=r.next;if(!r.next)pool.done[qi]=true;found=r.items;
-    }catch(e){setLoading(false);apiFail(e);throw e}
-    if(useAI&&found.length){
-      setLoading(true,'AI 正在替你筛…');
-      try{found=await aiScreen(found,n)}catch(e){toast('AI 没有回应，这一批没有筛')}
-    }
+    let raw;
+    try{raw=await searchBatch(id)}catch(e){setLoading(false);apiFail(e);throw e}
     setLoading(false);
-    pool.items=pool.items.concat(found);pool.at=Date.now();savePools();
+    if(!raw)break;
+    v=ranked(raw)[0]||null;
+    const rest=raw.filter(x=>x!==v);
+    if(rest.length&&!filling[id])filling[id]=screenInto(id,rest).finally(()=>{delete filling[id]});
   }
-  return null;
+  topUp(id);
+  return v;
 }
 function makeClip(stId,lineId,hop,v){
   return {st:stId,line:lineId,video:v,title:v.title,by:v.channel,hop,color:ln(lineId)?.color||'#59b7a8',seed:clips.length};
@@ -253,7 +281,7 @@ function showClip(){
   $('metaWhy').textContent=c.video.why?`AI：${c.video.why}`:'';$('metaWhy').hidden=!c.video.why;
   $('metaLink').href='https://www.youtube.com/watch?v='+encodeURIComponent(c.video.id);
   $('like').classList.toggle('on',!!liked[c.video.id]);
-  $('sound').hidden=YTP.wantSound;
+  syncMute();
   wake();
   seen[c.video.id]=Date.now();
   if(!c.moment&&!c.counted){plays.push({st:c.st,t:Date.now()});c.counted=true}
@@ -269,7 +297,8 @@ function feedback(){
   if(e){if(dwell>=6000)e.w=Math.min(2,+(e.w+.1).toFixed(2));else if(dwell<2000)e.w=Math.max(.2,+(e.w-.1).toFixed(2));save()}
 }
 async function go(dir){
-  if(overOpen||moving)return;
+  if(overOpen)return;
+  if(moving){if(dir>0)toast('正在准备下一条…');return}
   if($('phone').classList.contains('open')){closeSheet();return}
   moving=true;
   try{
@@ -525,7 +554,7 @@ function settingsHTML(){
   if(setPage==='region')return backBar('内容地区')+`<p class="dim">选一个国家，就只找那里的本地内容；选全世界则不限。开了 AI 时，搜索词会用当地语言写，标题会翻译成中文。</p><div class="group">${REGIONS.map(r=>`<button class="row" data-act="region" data-r="${r.id}"><span class="rt">${r.name}</span><span class="rv">${r.en||''}</span><span class="rc">${r.id===region().id?'✓':''}</span></button>`).join('')}</div>`;
   if(setPage==='ai'){
     const compat=s.provider==='compat',preset=AI_PRESETS.find(x=>x.id===s.preset)||AI_PRESETS[0];
-    return backBar('AI')+`<p class="dim">AI 替你写搜索词、筛视频、听懂你说的话。Key 只发给你选的这一家。</p>
+    return backBar('AI')+`<p class="dim">AI 替你写搜索词、筛视频、听懂你说的话。Key 只发给你选的这一家。</p><p class="dim">筛片想快，选小而快的模型：Claude Haiku、GPT 的 mini 系列、Gemini Flash、DeepSeek。大模型更准，但每批要多等十几秒。</p>
 <div class="setting"><select id="aiProv" aria-label="AI 服务">${Object.entries(AI_PROVIDERS).map(([v,x])=>opt(v,x.name,v===s.provider)).join('')}</select>
 ${compat?`<select id="aiPreset" aria-label="服务">${AI_PRESETS.map(x=>opt(x.id,x.name,x.id===preset.id)).join('')}</select><input id="aiBase" autocomplete="off" placeholder="接口地址，例如 https://api.deepseek.com" value="${esc(s.base||preset.base)}" aria-label="接口地址">`:''}
 ${s.provider!=='none'?`<input id="aiKey" type="password" autocomplete="off" placeholder="${s.key?'已设置，粘贴新的可替换':compat?'API Key（本机模型可不填）':'API Key'}" aria-label="AI API Key"><input id="aiModel" list="aiModels" autocomplete="off" placeholder="模型名，可点“获取模型列表”" value="${esc(s.model||p.model||'')}" aria-label="模型"><datalist id="aiModels"></datalist>
@@ -711,10 +740,12 @@ document.addEventListener('click',e=>{
   const a=b.dataset.act;
   if(a==='close')closeSheet();
   else if(a==='turn')turn();
-  else if(a==='unmute'){YTP.sound();$('sound').hidden=true}
+  else if(a==='unmute'){YTP.sound();syncMute()}
+  else if(a==='mute'){if(YTP.wantSound)YTP.mute();else YTP.sound();syncMute();toast(YTP.wantSound?'声音已打开':'已静音')}
   else if(a==='begin'){
     closeOver(false);started=true;YTP.wantSound=true;YTP.held=false;
     showClip();const c=clips[idx];if(c.hop&&c.hop.transfer)transferCard(c);
+    setTimeout(warmAll,1500);
     try{if(!localStorage.getItem('xiaoyu.hint')){localStorage.setItem('xiaoyu.hint','1');setTimeout(()=>toast('双击左右跳 10 秒 · 长按左侧快退、右侧 2 倍速 · 长按中间打开群岛图'),6000)}}catch(err){}
   }
   else if(a==='save-key'){
@@ -733,7 +764,7 @@ document.addEventListener('click',e=>{
   }
   else if(a==='ai-save'){
     const s=aiForm();AI.save(s);$('aiStatus').textContent='正在测试…';
-    AI.json('只回复这个 JSON，不要别的：{"ok":true}',s).then(d=>{$('aiStatus').textContent=d.ok?`连接成功：${AI.label()}`:'连上了，但回复格式不对，换一个模型试试';pools={};savePools()}).catch(err=>{$('aiStatus').textContent=`连接失败：${err.message}`});
+    AI.json('只回复这个 JSON，不要别的：{"ok":true}',s).then(d=>{$('aiStatus').textContent=d.ok?`连接成功：${AI.label()}`:'连上了，但回复格式不对，换一个模型试试';pools={};savePools();if(started)warmAll()}).catch(err=>{$('aiStatus').textContent=`连接失败：${err.message}`});
   }
   else if(a==='reset'){
     try{localStorage.removeItem('xiaoyu.v3.state');localStorage.removeItem('xiaoyu.v3.pools')}catch(err){}
@@ -828,6 +859,8 @@ function setSpeed(r,keep){
   YTP.rate(r);$('speedLabel').textContent=`${speed}×`;$('speedBtn').classList.toggle('on',speed!==1);
 }
 /* captions: Simplified Chinese, from a Chinese track or YouTube's own translation of another one */
+/* the mute button shows the sound state; the old "tap for sound" label is no longer needed */
+function syncMute(){$('sound').hidden=true;$('muteBtn').classList.toggle('on',!YTP.wantSound);$('muteBtn').setAttribute('aria-label',YTP.wantSound?'静音':'打开声音')}
 function setCC(on){
   YTP.setCC(on);$('ccBtn').classList.toggle('on',on);
   try{localStorage.setItem('xiaoyu.cc',on?'1':'')}catch(e){}
@@ -835,6 +868,7 @@ function setCC(on){
 }
 function openPop(){
   $('pop').innerHTML=`<p class="dim">播放速度</p>`+SPEEDS.map(r=>`<button data-act="speed" data-r="${r}" aria-pressed="${r===speed}">${r===1?'正常':r+'×'}</button>`).join('');
+  const btn=$('speedBtn');$('pop').style.top=(btn.offsetParent.offsetTop+btn.offsetTop)+'px';
   $('pop').hidden=false;$('popScrim').hidden=false;clearTimeout(wake.t);
 }
 function closePop(){if($('pop').hidden)return;$('pop').hidden=true;$('popScrim').hidden=true;wake()}
@@ -890,8 +924,8 @@ touch.addEventListener('pointerdown',e=>{
   t0=local(e);clearTimeout(press);
   press=setTimeout(()=>{
     const side=t0.x<t0.w/3?-1:t0.x>t0.w*2/3?1:0,y=t0.y;t0=null;clearTimeout(tapT);lastTap=null;
-    if(!started||overOpen)return;
-    if(side)startHold(side,y);else openSheet('map');
+    if(overOpen)return;
+    if(side&&started)startHold(side,y);else openSheet('map');
   },450);
 });
 touch.addEventListener('pointermove',e=>{
@@ -904,7 +938,8 @@ touch.addEventListener('pointerup',e=>{
   if(!t0)return;
   const p=local(e),dy=p.y-t0.y,dx=p.x-t0.x;t0=null;
   if(Math.abs(dy)>48&&Math.abs(dy)>Math.abs(dx)){go(dy<0?1:-1);return}
-  if(Math.abs(dy)>=10||Math.abs(dx)>=10||!started)return;
+  if(Math.abs(dy)>=10||Math.abs(dx)>=10)return;
+  if(!started){wake();return}
   const side=p.x<p.w/3?-1:p.x>p.w*2/3?1:0,now=Date.now();
   /* after a double-tap seek, each further tap on that side seeks again, like the phone players */
   if(side&&now<seekUntil&&lastTap?.side===side){seekBy(side);seekUntil=now+700;lastTap={side,at:now};return}
@@ -917,7 +952,7 @@ touch.addEventListener('pointerup',e=>{
   tapT=setTimeout(()=>{
     lastTap=null;
     const ph=$('phone');
-    if(!YTP.wantSound){YTP.sound();$('sound').hidden=true}
+    if(!YTP.wantSound){YTP.sound();syncMute()}
     else if(!ph.classList.contains('calm'))YTP.toggle();
     wake();
   },280);
@@ -939,7 +974,7 @@ YTP.init({
   noCaptions(){toast('这条视频没有字幕')},
   ended(){if(!overOpen&&!$('phone').classList.contains('open'))go(1)},
   error(){if(started&&!overOpen)go(1)},
-  muted(){$('sound').hidden=false;wake()},
+  muted(){syncMute();wake()},
   loadFailed(){toast('YouTube 播放器加载失败，请检查网络')},
 });
 renderSheet();setSpeed(speed);$('ccBtn').classList.toggle('on',YTP.cc);
