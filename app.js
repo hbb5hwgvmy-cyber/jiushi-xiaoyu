@@ -207,8 +207,24 @@ function coverEl(c){
   return el;
 }
 function dropCover(){const el=$('feed').lastElementChild;if(el&&!el.classList.contains('gone')){el.classList.add('gone');setTimeout(()=>el.remove(),380)}}
+/* Top strip: where you are, in the middle and fully visible; the islands before and after it along the routes
+   sit to either side, fainter the further away, so you can see the neighbourhood at a glance. */
+const NEAR_OPACITY=.45,FAR_OPACITY=.2;
+function routeAround(c){
+  if(c.moment)return {before:[],after:[]};
+  const live=edges.filter(e=>!e.cut&&!st(e.from)?.paused&&!st(e.to)?.paused),seen=new Set([c.st]);
+  const walk=(id,dir)=>{const out=[];for(let i=0;i<2;i++){const e=live.find(e=>(dir>0?e.from:e.to)===id&&!seen.has(dir>0?e.to:e.from));if(!e)break;id=dir>0?e.to:e.from;seen.add(id);out.push(id)}return out};
+  let before=c.hop?.from&&st(c.hop.from)?[c.hop.from]:[];before.forEach(id=>seen.add(id));
+  const after=walk(c.st,1);
+  if(!before.length)before=walk(c.st,-1);else before=before.concat(walk(before[0],-1)).slice(0,2);
+  return {before:before.reverse(),after};
+}
+const PEN=`<svg class="nl" viewBox="0 0 18 8" aria-hidden="true"><path d="M1 5C5 2.500 9 6.500 17 3.500"/></svg>`;
 function drawNode(c){
-  const n=st(c.st)||{},name=c.moment?(c.scene||n.name||''):n.name||'';
+  const n=st(c.st)||{},name=c.moment?(c.scene||n.name||''):n.name||'',r=routeAround(c);
+  const isle=(id,o)=>`<span class="nb" style="opacity:${o}"><img src="icons/${esc(st(id).icon||FALLBACK_ICON)}" alt=""></span>`;
+  const side=(ids,toward)=>ids.map((id,i)=>{const o=(toward?ids.length-1-i:i)===0?NEAR_OPACITY:FAR_OPACITY;return toward?isle(id,o)+`<span style="opacity:${o}">${PEN}</span>`:`<span style="opacity:${o}">${PEN}</span>`+isle(id,o)}).join('');
+  $('nodeBefore').innerHTML=side(r.before,true);$('nodeAfter').innerHTML=side(r.after,false);
   $('nodeIcon').innerHTML=`<img src="icons/${esc(n.icon||FALLBACK_ICON)}" alt="">`;
   $('nodeName').textContent=name;$('node').setAttribute('aria-label',`当前小岛：${name}。点按打开群岛图`);
   $('node').hidden=false;$('node').classList.add('named');clearTimeout(drawNode.t);drawNode.t=setTimeout(()=>$('node').classList.remove('named'),2200);
