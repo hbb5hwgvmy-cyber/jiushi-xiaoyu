@@ -27,20 +27,21 @@
     <button class="pill" id="pill" data-act="tab" data-tab="moment" hidden><span id="pillName"></span><time id="pillTime"></time></button>
     <div class="rail">
       <button data-act="turn" aria-label="横屏全屏"><svg viewBox="0 0 24 24"><rect x="3.500" y="7" width="17" height="10" rx="2"/><path d="M7 4.500h3M14 19.500h3"/></svg></button>
+      <button data-act="speed-pop" id="speedBtn" aria-label="播放速度"><span id="speedLabel">1×</span></button>
       <button data-act="like" id="like" aria-label="收藏"><svg viewBox="0 0 24 24"><path d="M12 20s-7.500-4.600-7.500-10.200A4.300 4.300 0 0 1 12 7.200a4.300 4.300 0 0 1 7.500 2.600C19.500 15.400 12 20 12 20z"/></svg></button>
       <button data-act="tab" data-tab="moment" aria-label="说现在想看什么"><svg viewBox="0 0 24 24"><path d="M4 5.500h16v11H10l-4.500 3.500v-3.500H4z"/></svg></button>
       <button data-act="tab" data-tab="map" aria-label="打开群岛图"><svg viewBox="0 0 24 24"><path d="M9 14c.8-4.500 5.200-4.500 6 0z"/><path d="M3.500 18c2.800 2 5.700 2 8.500 0s5.700-2 8.500 0"/></svg></button>
     </div>
     <div class="prog" id="prog"><i></i></div>
     <div class="seek" id="seek"></div>
+    <div class="popscrim" id="popScrim" hidden></div>
+    <div class="pop" id="pop" role="menu" hidden></div>
     <section class="card" id="card" aria-label="当前规则"><div class="band"></div><div class="count" id="cd"></div><div class="cbody" id="cbody"></div></section>
     <div class="scrim" id="scrim"></div>
     <section class="sheet" id="sheet" aria-label="控制面板">
       <div class="tabs" role="tablist">
         <button class="t" role="tab" data-act="tab" data-tab="moment">此刻</button>
         <button class="t" role="tab" data-act="tab" data-tab="map">群岛</button>
-        <button class="t" role="tab" data-act="tab" data-tab="taste">口味</button>
-        <button class="t" role="tab" data-act="tab" data-tab="log">记录</button>
         <button class="t" role="tab" data-act="tab" data-tab="set">设置</button>
         <button class="close" data-act="close" aria-label="收起">×</button>
       </div>
@@ -60,7 +61,7 @@
     <p class="en">Attention is all you have. Spend it on what you love.</p>
     <p>视频来自 YouTube。先开五座岛：电影、旅行、运动、居家、宠物。在“设置”里填 YouTube Key 和任意一家 AI 的 Key，AI 会用中英日三种语言替你找片、筛片。</p>
     <ol>
-      <li>上下滑换视频；双击左侧快退、右侧快进 10 秒；长按左侧一直快退、右侧一直快进；长按中间打开群岛图。</li>
+      <li>上下滑换视频；双击左侧快退、右侧快进 10 秒；长按左侧一直快退；长按右侧 2 倍速，按住往下滑锁定；长按中间打开群岛图。</li>
       <li>按钮 5 秒后自动隐去，轻点画面再出现。</li>
       <li>说“今晚只看老电影，刷到 11 点半”。</li>
       <li>说“加一座岛 咖啡”。</li>

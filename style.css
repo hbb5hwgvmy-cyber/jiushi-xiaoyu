@@ -195,3 +195,38 @@ body{margin:0}
 .phone.rot{position:fixed;z-index:20;top:0;left:100vw;width:100vh;width:100dvh;height:100vw;transform:rotate(90deg);transform-origin:top left;border-radius:0;box-shadow:none}
 .rail{pointer-events:none}.rail button{pointer-events:auto}
 .phone.calm .rail button{pointer-events:none}
+
+/* island map: crisp label pills, hand-drawn routes */
+.st-name{font-size:13px;font-weight:700;fill:var(--ink);stroke:none}
+.st-sub{font-size:10.5px;fill:var(--ink-3);stroke:none;font-weight:500}
+.st-pill{fill:rgba(8,14,18,.86);stroke:rgba(255,255,255,.12);stroke-width:1}
+.ln-name{font-size:12px;font-weight:700;letter-spacing:.12em;opacity:.8}
+/* speed */
+#speedLabel{font:500 13px var(--mono);color:#fff}
+.rail #speedBtn.on{background:rgba(255,209,102,.28)}
+.rail #speedBtn.on #speedLabel{color:var(--gold)}
+.popscrim{position:absolute;z-index:6;inset:0}
+.pop{position:absolute;z-index:7;right:66px;bottom:190px;display:flex;flex-direction:column;gap:2px;padding:8px;border-radius:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);min-width:120px;border:1px solid var(--line)}
+.pop .dim{padding:2px 10px 4px}
+.pop button{text-align:left;padding:8px 12px;border-radius:9px;font:500 14px var(--mono)}
+.pop button[aria-pressed=true]{background:var(--ink);color:#14161f}
+/* settings: grouped rows */
+.group{display:flex;flex-direction:column;background:var(--raise);border-radius:14px;overflow:hidden;flex:none}
+.group .gl{padding:10px 14px 2px;font-size:12px;color:var(--ink-3);font-weight:700}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;width:100%;min-height:50px}
+.row+.row{border-top:1px solid var(--line)}
+.row.static{padding-bottom:6px}
+.row .ri{width:22px;height:22px;flex:none;display:grid;place-items:center}
+.row .ri svg{width:20px;height:20px;fill:none;stroke:var(--ink-2);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.row .rt{font-weight:700;flex:none}
+.row .rv{margin-left:auto;color:var(--ink-3);font-size:13px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.row .rc{color:var(--ink-3);font-size:20px;line-height:1;flex:none}
+.row.danger .rt{color:#ffb4b4;font-weight:500}
+.seg.wide{margin:0 14px 14px;display:grid;grid-template-columns:repeat(6,1fr)}
+.seg.wide button{padding:7px 0;font:500 13px var(--mono)}
+.back{display:flex;align-items:center;gap:10px}
+.back button{color:var(--ch);font-size:14px;padding:4px 0;flex:none}
+.back h2{font-size:19px}
+.mapbox{height:300px}
+.mapbox.all{height:300px;overflow:hidden}
+.mapbox.all svg{width:100%;height:100%;min-height:0}

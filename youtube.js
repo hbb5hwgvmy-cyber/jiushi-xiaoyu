@@ -70,6 +70,7 @@ const YTP={
   play(){YTP.held=false;if(YTP.ready)YTP.player.playVideo?.()},
   toggle(){if(!YTP.ready)return;if(YTP.player.getPlayerState?.()===YT.PlayerState.PLAYING)YTP.pause();else YTP.play()},
   sound(){YTP.wantSound=true;if(YTP.ready){YTP.player.unMute();YTP.player.playVideo()}},
+  rate(r){if(!YTP.ready)return;try{YTP.player.setPlaybackRate(r)}catch(e){}},
   seek(d){if(!YTP.ready)return;try{const t=YTP.player.getCurrentTime(),n=YTP.player.getDuration();YTP.player.seekTo(Math.max(0,Math.min(n?n-1:1e9,t+d)),true)}catch(e){}},
   progress(){try{const d=YTP.player.getDuration(),t=YTP.player.getCurrentTime();return d>0?t/d:0}catch(e){return 0}},
 };

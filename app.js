@@ -3,7 +3,7 @@
    In the UI a "line" is a sea (海域), a "station" is an island (岛) and an "edge" is a sailing route (航线). */
 const LINES=[
   {id:'home',name:'在家海',color:'#f2a65a',stops:['film','living','pet'],type:'相近',lx:200,ly:-14},
-  {id:'out',name:'出门海',color:'#4da3ff',stops:['travel','sport'],type:'切换',lx:200,ly:300},
+  {id:'out',name:'出门海',color:'#4da3ff',stops:['travel','sport'],type:'切换',lx:205,ly:318},
 ];
 const WHY={变深:'再深入一点',相近:'去邻近的岛',切换:'换个节奏',试运营:'试一条新航线',你加的:'这是你加的航线',换线:'这片海走到头了，换一片'};
 const WHENS=['随时','仅早上','仅晚上','仅周末晚上'];
@@ -15,8 +15,8 @@ let stations=[
   s('film','电影',60,70,'a',0,0,{en:'Cinema',icon:'theme-film.svg'}),
   s('living','居家',200,40,'a',0,0,{en:'Home & Living',icon:'theme-rent.svg'}),
   s('pet','宠物',340,80,'a',0,{k:'day',n:5},{en:'Pets',icon:'theme-cat.svg'}),
-  s('travel','旅行',120,220,'b',0,0,{en:'Travel',icon:'theme-travel.svg'}),
-  s('sport','运动',290,240,'b','仅早上',0,{en:'Sports',icon:'theme-fit.svg'}),
+  s('travel','旅行',310,235,'b',0,0,{en:'Travel',icon:'theme-travel.svg'}),
+  s('sport','运动',100,240,'b','仅早上',0,{en:'Sports',icon:'theme-fit.svg'}),
 ];
 let edges=[];
 LINES.forEach(l=>l.stops.slice(0,-1).forEach((a,i)=>edges.push({from:a,to:l.stops[i+1],line:l.id,type:l.type,w:1,cut:false})));
@@ -43,7 +43,7 @@ const esc=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const hhmm=d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 const MOMENT_COLOR='#ffd166';
 
-let clips=[],idx=-1,enter=0,moment=null,tab='moment',sel={type:'st',id:'film'},mapMode='near',seenLine={},liked={},undoStack=[],cardTimer=null,cardState='off',busy=false,overOpen=false,vb=null,vbRaf=0,started=false,moving=false;
+let setPage=null,clips=[],idx=-1,enter=0,moment=null,tab='moment',sel={type:'st',id:'film'},mapMode='near',seenLine={},liked={},undoStack=[],cardTimer=null,cardState='off',busy=false,overOpen=false,vb=null,vbRaf=0,started=false,moving=false;
 let plays=[],seen={},pools={},emptyStations=new Set();
 
 /* persistence */
@@ -52,7 +52,12 @@ function savePools(){try{localStorage.setItem('xiaoyu.v3.pools',JSON.stringify(p
 function load(){
   try{
     const d=JSON.parse(localStorage.getItem('xiaoyu.v3.state')||'null');
-    if(d){stations=d.stations;edges=d.edges;tastes=d.tastes;logs=d.logs;plays=d.plays||[];seen=d.seen||{};liked=d.liked||{}}
+    if(d){
+      /* islands from the sample keep their latest positions; rules the user changed are kept */
+      const home=Object.fromEntries(stations.map(n=>[n.id,n]));
+      stations=d.stations.map(n=>home[n.id]?{...n,x:home[n.id].x,y:home[n.id].y}:n);
+      edges=d.edges;tastes=d.tastes;logs=d.logs;plays=d.plays||[];seen=d.seen||{};liked=d.liked||{};
+    }
     pools=JSON.parse(localStorage.getItem('xiaoyu.v3.pools')||'{}');
   }catch(e){}
 }
@@ -356,26 +361,45 @@ async function leaveMoment(msg){
 /* map */
 const WHOLE=[-60,-70,480,400];
 const edgeKey=e=>e.from+'>'+e.to;
-function pathOf(e){
-  const a=st(e.from),b=st(e.to),via=(e.via||[]).map(p=>p.join(' ')).join(' L');
-  return `M${a.x} ${a.y}${via?' L'+via:''} L${b.x} ${b.y}`;
+/* Routes look hand-drawn: a gentle bow plus a slight wobble, seeded by the route so they hold still between renders. */
+function seeded(key){let h=2166136261;for(const c of key)h=Math.imul(h^c.charCodeAt(0),16777619);return()=>{h=Math.imul(h^h>>>15,2246822507);h=Math.imul(h^h>>>13,3266489909);return((h^=h>>>16)>>>0)/4294967296}}
+function pathOf(e,pass=''){
+  const a=st(e.from),b=st(e.to),r=seeded(edgeKey(e)+pass),corners=[[a.x,a.y],...(e.via||[]),[b.x,b.y]],P=[corners[0]];
+  const bowSign=seeded(edgeKey(e))()<.5?-1:1;
+  for(let j=0;j<corners.length-1;j++){
+    const[x0,y0]=corners[j],[x1,y1]=corners[j+1],dx=x1-x0,dy=y1-y0,len=Math.hypot(dx,dy)||1,nx=-dy/len,ny=dx/len;
+    const bow=e.via?.length?0:bowSign*len*.12,N=Math.max(3,Math.round(len/38));
+    for(let i=1;i<=N;i++){const t=i/N,k=4*t*(1-t)*bow+(i<N?(r()-.5)*5.5:0);P.push([x0+dx*t+nx*k,y0+dy*t+ny*k])}
+  }
+  const f=v=>v.toFixed(1);let d=`M${f(P[0][0])} ${f(P[0][1])}`;
+  for(let i=0;i<P.length-1;i++){
+    const p0=P[i-1]||P[i],p1=P[i],p2=P[i+1],p3=P[i+2]||p2;
+    d+=` C${f(p1[0]+(p2[0]-p0[0])/6)} ${f(p1[1]+(p2[1]-p0[1])/6)} ${f(p2[0]-(p3[0]-p1[0])/6)} ${f(p2[1]-(p3[1]-p1[1])/6)} ${f(p2[0])} ${f(p2[1])}`;
+  }
+  return d;
 }
+/* rough text width for the label pills: CJK about one em, Latin about half */
+const textW=(t,size)=>[...t].reduce((w,c)=>w+(/[\u0000-\u00ff]/.test(c)?.56:1)*size,0);
 const R=23;
 function mapSVG(){
   const curId=clips[idx]?.st;
   const edgesSvg=edges.map(e=>{
     const off=st(e.to).paused||st(e.from).paused,l=ln(e.line),color=e.cut||off?'rgba(243,244,248,.28)':(l?l.color:'#e8e8ee');
-    const dash=e.cut?'2 8':(e.type==='试运营'||off)?'8 7':'1 9';
+    const dash=e.cut?'2 9':(e.type==='试运营'||off)?'9 8':'none';
     const on=sel.type==='edge'&&sel.id===edgeKey(e);
-    const width=l&&!e.cut?3.5+e.w*1.6:3;
-    return `<path d="${pathOf(e)}" fill="none" stroke="${color}" stroke-width="${on?width+3:width}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${dash}"/>`;
+    const width=(l&&!e.cut?2+e.w*.9:2)+(on?2.5:0);
+    /* a second, fainter pass of the pen makes the line read as drawn by hand */
+    return `<path d="${pathOf(e)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${dash}"/>`+(e.cut?'':`<path d="${pathOf(e,'pen')}" fill="none" stroke="${color}" stroke-opacity=".35" stroke-width="${Math.max(1,width*.45)}" stroke-linecap="round" stroke-dasharray="${dash}"/>`);
   }).join('');
   const hits=edges.map(e=>`<path d="${pathOf(e)}" fill="none" stroke="transparent" stroke-width="22" data-act="edge" data-id="${esc(edgeKey(e))}" style="cursor:pointer"/>`).join('');
   const nodes=stations.map(n=>{
     const multi=linesAt(n.id).length>1,on=sel.type==='st'&&sel.id===n.id,cur=n.id===curId;
-    const off=n.paused||!nowOk(n.when),y=n.lab==='a'?n.y-R-8:n.y+R+16,sub=n.paused?'已停航':!nowOk(n.when)?n.when:n.cap?capText(n.cap).replace('最多 ','').replace(' 条','条'):'';
+    const off=n.paused||!nowOk(n.when),sub=n.paused?'已停航':!nowOk(n.when)?n.when:n.cap?capText(n.cap).replace('最多 ','').replace(' 条','条'):'';
+    /* label: one solid pill under the island, name then its limit; no outlines, so the text stays crisp */
+    const nameW=textW(n.name,13),subW=sub?textW(sub,10.5)+8:0,pw=nameW+subW+18,py=n.y+R+7;
+    const label=`<rect class="st-pill" x="${n.x-pw/2}" y="${py}" width="${pw}" height="21" rx="10.5"/><text class="st-name" x="${n.x-pw/2+9}" y="${py+15}">${esc(n.name)}</text>${sub?`<text class="st-sub" x="${n.x-pw/2+9+nameW+8}" y="${py+14.5}">${esc(sub)}</text>`:''}`;
     const ring=on?'#ffd166':multi?'rgba(255,255,255,.85)':'rgba(255,255,255,.25)';
-    return `<g class="${off?'st-off':''}" data-act="st" data-id="${n.id}" style="cursor:pointer">${cur?`<circle class="here" cx="${n.x}" cy="${n.y}" r="${R+5}" fill="none" stroke="#fff" stroke-width="2"/>`:''}<circle cx="${n.x}" cy="${n.y}" r="${R+8}" fill="transparent"/><image href="icons/${esc(n.icon||FALLBACK_ICON)}" x="${n.x-R}" y="${n.y-R}" width="${R*2}" height="${R*2}" clip-path="url(#isleClip)" preserveAspectRatio="xMidYMid slice"/><circle cx="${n.x}" cy="${n.y}" r="${R}" fill="none" stroke="${ring}" stroke-width="${on?3.5:multi?2.5:1.5}"/><text class="st-name" x="${n.x}" y="${y}" text-anchor="middle">${esc(n.name)}</text>${sub?`<text class="st-sub" x="${n.x}" y="${n.lab==='a'?y-15:y+13}" text-anchor="middle">${esc(sub)}</text>`:''}</g>`;
+    return `<g class="${off?'st-off':''}" data-act="st" data-id="${n.id}" style="cursor:pointer">${cur?`<circle class="here" cx="${n.x}" cy="${n.y}" r="${R+5}" fill="none" stroke="#fff" stroke-width="2"/>`:''}<circle cx="${n.x}" cy="${n.y}" r="${R+8}" fill="transparent"/><image href="icons/${esc(n.icon||FALLBACK_ICON)}" x="${n.x-R}" y="${n.y-R}" width="${R*2}" height="${R*2}" clip-path="url(#isleClip)" preserveAspectRatio="xMidYMid slice"/><circle cx="${n.x}" cy="${n.y}" r="${R}" fill="none" stroke="${ring}" stroke-width="${on?3.5:multi?2.5:1.5}"/>${label}</g>`;
   }).join('');
   const names=LINES.map(l=>`<text class="ln-name" x="${l.lx}" y="${l.ly}" text-anchor="middle" fill="${l.color}">${l.name}</text>`).join('');
   return `<svg id="mapSvg" viewBox="${mapMode==='all'?WHOLE.join(' '):viewFor().join(' ')}" role="img" aria-label="群岛图"><defs><clipPath id="isleClip" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath></defs>${edgesSvg}${hits}${names}${nodes}</svg>`;
@@ -424,12 +448,14 @@ function renderSheet(){
     b.innerHTML=`<div class="mapbar"><p class="dim">点小岛改规则，点航线改这一条</p><div class="seg"><button data-act="mode" data-m="near" aria-pressed="${mapMode==='near'}">附近</button><button data-act="mode" data-m="all" aria-pressed="${mapMode==='all'}">全图</button></div></div><div class="mapbox ${mapMode==='all'?'all':''}" id="mapbox">${mapSVG()}</div>${detailHTML()}`;
     if(mapMode==='all'&&wasScroll!=null&&$('mapbox'))$('mapbox').scrollLeft=wasScroll;
   }
-  if(tab==='taste'){
+  if(tab==='set'&&setPage==='taste'){
     const g=(arr,no)=>arr.length?arr.map(t=>`<span class="tag ${no?'no':''}">${esc(t.tag)}<button data-act="untaste" data-tag="${esc(t.tag)}" aria-label="删除 ${esc(t.tag)}">×</button></span>`).join(''):'<span class="dim">还没有</span>';
-    b.innerHTML=`<h2>口味跨越所有主题</h2><p class="dim">开专场和日常选片都按这里排序。专场里的观看不会写到这里，除非你在结束时同意。</p><div><p class="dim" style="margin-bottom:6px">喜欢</p><div class="tags">${g(tastes.filter(t=>t.like))}</div></div><div><p class="dim" style="margin-bottom:6px">避开（专场也不例外）</p><div class="tags">${g(tastes.filter(t=>!t.like),true)}</div></div>`;
+    b.innerHTML=backBar('口味')+`<p class="dim">开专场和日常选片都按这里排序。专场里的观看不会写到这里，除非你在结束时同意。</p><div><p class="dim" style="margin-bottom:6px">喜欢</p><div class="tags">${g(tastes.filter(t=>t.like))}</div></div><div><p class="dim" style="margin-bottom:6px">避开（专场也不例外）</p><div class="tags">${g(tastes.filter(t=>!t.like),true)}</div></div>`;
   }
-  if(tab==='log')b.innerHTML=`<h2>改过什么，都在这里</h2><ul class="log">${logs.slice().reverse().map(l=>`<li>${esc(l.text)}<small>${esc(l.from)}</small></li>`).join('')}</ul>`;
-  if(tab==='set')b.innerHTML=settingsHTML();
+  if(tab==='set'&&setPage==='log')b.innerHTML=backBar('改动记录')+`<ul class="log">${logs.slice().reverse().map(l=>`<li>${esc(l.text)}<small>${esc(l.from)}</small></li>`).join('')}</ul>`;
+  if(tab==='set'&&!['taste','log'].includes(setPage))b.innerHTML=settingsHTML();
+  /* the "say a sentence" bar belongs to moment, map and taste; plain settings don't need it */
+  $('sheet').querySelector('.ai').hidden=tab==='set'&&setPage!=='taste';
   renderSugs();
 }
 function momentHTML(){
@@ -440,15 +466,15 @@ function momentHTML(){
 function renderSugs(){
   const cur=st(clips[idx]?.st)||st('film'),prev=clips[idx]?.hop?.from?st(clips[idx].hop.from):null;
   let list;
-  if(tab==='set')list=[];
+  if(tab==='set'&&setPage!=='taste')list=[];
   else if(tab==='moment')list=moment?['再看半小时','再看 15 分钟']:['今晚只看老电影，刷到 11 点半','想看京都散步，看 20 分钟','现在只想看猫'];
-  else if(tab==='taste')list=['我不喜欢标题党','我喜欢安静的','别再推带货'];
+  else if(tab==='set')list=['我不喜欢标题党','我喜欢安静的','别再推带货'];
   else list=[prev?`别从${prev.name}直接跳到${cur.name}`:'别从宠物直接跳到旅行','运动后接电影',`${cur.name}只在周末晚上看`,`暂停${cur.name}`];
   $('sugs').hidden=!list.length;$('sugs').innerHTML=list.map(x=>`<button type="button" data-act="say">${esc(x)}</button>`).join('');
 }
 function openSheet(t){
   clearTimeout(cardTimer);hideCard();
-  tab=t;
+  tab=t;setPage=null;
   if(clips[idx]&&!clips[idx].moment&&sel.type==='st'&&t==='map')sel={type:'st',id:clips[idx].st};
   vb=viewFor();
   $('phone').classList.add('open');YTP.pause();
@@ -459,19 +485,37 @@ function refresh(){if($('phone').classList.contains('open')){renderSheet();anima
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),2600)}
 
 
+/* Settings: a short list; each row opens its own page so only one thing is on screen at a time. */
+const backBar=t=>`<div class="back"><button data-act="set-page" data-p="" aria-label="返回设置">‹ 设置</button><h2>${esc(t)}</h2></div>`;
 function settingsHTML(){
   const k=YTAPI.key(),s=AI.load(),p=AI_PROVIDERS[s.provider]||AI_PROVIDERS.none,opt=(v,t,on)=>`<option value="${esc(v)}" ${on?'selected':''}>${esc(t)}</option>`;
-  const compat=s.provider==='compat',preset=AI_PRESETS.find(x=>x.id===s.preset)||AI_PRESETS[0];
-  return `<h2>设置</h2><p class="dim">Key 只保存在这台手机上，只发给你选的服务。</p>
-<div class="setting"><p class="lab">YouTube（找视频）</p><input id="ytKey" autocomplete="off" placeholder="${k?'已设置，粘贴新的可替换':'粘贴 YouTube Data API Key'}" aria-label="YouTube API Key"><p class="dim">今天估算已用配额 ${YTAPI.units()} / 10000 单位。每次搜索 100 单位。</p><div class="btns"><button class="btn" data-act="save-yt">保存</button></div></div>
-<div class="setting"><p class="lab">AI（替你找片、听懂你的话）</p>
-<select id="aiProv" aria-label="AI 服务">${Object.entries(AI_PROVIDERS).map(([v,x])=>opt(v,x.name,v===s.provider)).join('')}</select>
+  if(setPage==='yt')return backBar('YouTube')+`<p class="dim">用你自己的 YouTube Data API Key 搜视频。只保存在这台手机上。</p>
+<div class="setting"><input id="ytKey" autocomplete="off" placeholder="${k?'已设置，粘贴新的可替换':'粘贴 YouTube Data API Key'}" aria-label="YouTube API Key"><div class="btns"><button class="btn prime" data-act="save-yt">保存</button></div></div>
+<p class="dim">今天估算已用配额 ${YTAPI.units()} / 10000 单位，每次搜索 100 单位。</p>`;
+  if(setPage==='ai'){
+    const compat=s.provider==='compat',preset=AI_PRESETS.find(x=>x.id===s.preset)||AI_PRESETS[0];
+    return backBar('AI')+`<p class="dim">AI 替你写搜索词、筛视频、听懂你说的话。Key 只发给你选的这一家。</p>
+<div class="setting"><select id="aiProv" aria-label="AI 服务">${Object.entries(AI_PROVIDERS).map(([v,x])=>opt(v,x.name,v===s.provider)).join('')}</select>
 ${compat?`<select id="aiPreset" aria-label="服务">${AI_PRESETS.map(x=>opt(x.id,x.name,x.id===preset.id)).join('')}</select><input id="aiBase" autocomplete="off" placeholder="接口地址，例如 https://api.deepseek.com" value="${esc(s.base||preset.base)}" aria-label="接口地址">`:''}
 ${s.provider!=='none'?`<input id="aiKey" type="password" autocomplete="off" placeholder="${s.key?'已设置，粘贴新的可替换':compat?'API Key（本机模型可不填）':'API Key'}" aria-label="AI API Key"><input id="aiModel" list="aiModels" autocomplete="off" placeholder="模型名，可点“获取模型列表”" value="${esc(s.model||p.model||'')}" aria-label="模型"><datalist id="aiModels"></datalist>
-<div class="btns"><button class="btn" data-act="ai-models">获取模型列表</button><button class="btn prime" data-act="ai-save">保存并测试</button></div>`:''}
-<p class="dim" id="aiStatus">现在：${esc(AI.label())}</p></div>
-<div class="setting"><div class="btns"><button class="btn warn" data-act="reset">恢复示例群岛</button></div></div>`;
+<div class="btns"><button class="btn" data-act="ai-models">获取模型列表</button><button class="btn prime" data-act="ai-save">保存并测试</button></div>`:''}</div>
+<p class="dim" id="aiStatus">现在：${esc(AI.label())}</p>`;
+  }
+  const likes=tastes.filter(t=>t.like).length,avoids=tastes.length-likes;
+  const row=(pg,icon,title,val)=>`<button class="row" data-act="set-page" data-p="${pg}"><span class="ri">${icon}</span><span class="rt">${title}</span><span class="rv">${esc(val)}</span><span class="rc">›</span></button>`;
+  const rates=SPEEDS.map(r=>`<button data-act="speed" data-r="${r}" aria-pressed="${r===speed}">${r}×</button>`).join('');
+  return `<div class="group"><p class="gl">播放</p><div class="row static"><span class="ri">${ICON.speed}</span><span class="rt">速度</span></div><div class="seg wide">${rates}</div></div>
+<div class="group"><p class="gl">推荐</p>${row('taste',ICON.taste,'口味',`喜欢 ${likes} · 避开 ${avoids}`)}${row('log',ICON.log,'改动记录',`${logs.length} 条`)}</div>
+<div class="group"><p class="gl">连接</p>${row('ai',ICON.ai,'AI',AI.ready()?AI.label():'未连接')}${row('yt',ICON.yt,'YouTube',k?`已设置 · 今日 ${YTAPI.units()} 单位`:'未设置')}</div>
+<div class="group"><button class="row danger" data-act="reset"><span class="rt">恢复示例群岛</span></button></div>`;
 }
+const ICON={
+  speed:'<svg viewBox="0 0 24 24"><path d="M4.500 16a7.500 7.500 0 1 1 15 0"/><path d="M12 16l4-5"/></svg>',
+  taste:'<svg viewBox="0 0 24 24"><path d="M12 20s-7.500-4.600-7.500-10.200A4.300 4.300 0 0 1 12 7.200a4.300 4.300 0 0 1 7.500 2.600C19.500 15.400 12 20 12 20z"/></svg>',
+  log:'<svg viewBox="0 0 24 24"><path d="M6 5h12M6 10h12M6 15h8M6 20h5"/></svg>',
+  ai:'<svg viewBox="0 0 24 24"><path d="M12 3l1.800 4.700L18.500 9.500l-4.700 1.800L12 16l-1.800-4.700L5.500 9.500l4.700-1.800z"/><path d="M18 15l.8 2.200L21 18l-2.200.8L18 21l-.8-2.200L15 18l2.200-.8z"/></svg>',
+  yt:'<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3.500"/><path d="M10.500 9.500l4 2.500-4 2.500z"/></svg>',
+};
 function aiForm(){
   const s=AI.load(),v=id=>$(id)?.value.trim();
   if(v('aiKey'))s.key=v('aiKey');
@@ -527,7 +571,7 @@ function applyAction(a,from){
   if(a.type==='add_taste'&&a.tag){
     const tag=String(a.tag).slice(0,20),like=a.like!==false;
     mutate(()=>{tastes=tastes.filter(t=>t.tag!==tag);tastes.push({tag,like})},`口味：${like?'喜欢':'避开'} ${tag}`,from);
-    tab='taste';return `已记下：${like?'喜欢':'避开'}“${tag}”，所有主题都生效`;
+    tab='set';setPage='taste';return `已记下：${like?'喜欢':'避开'}“${tag}”，所有主题都生效`;
   }
   if(a.type==='add_station'&&a.name){
     const n=addStation(String(a.name).slice(0,12),st(a.after)?a.after:clips[idx]?.st||'film',from);
@@ -537,7 +581,7 @@ function applyAction(a,from){
   if(a.type==='remove_taste'&&a.tag){
     const tag=String(a.tag);if(!tastes.some(t=>t.tag===tag))return null;
     mutate(()=>{tastes=tastes.filter(t=>t.tag!==tag)},`口味：删除 ${tag}`,from);
-    tab='taste';return `已删除“${tag}”`;
+    tab='set';setPage='taste';return `已删除“${tag}”`;
   }
   return null;
 }
@@ -639,7 +683,7 @@ document.addEventListener('click',e=>{
   else if(a==='begin'){
     closeOver(false);started=true;YTP.wantSound=true;YTP.held=false;
     showClip();const c=clips[idx];if(c.hop&&c.hop.transfer)transferCard(c);
-    try{if(!localStorage.getItem('xiaoyu.hint')){localStorage.setItem('xiaoyu.hint','1');setTimeout(()=>toast('双击左右跳 10 秒 · 长按左右连续快退快进 · 长按中间打开群岛图'),6000)}}catch(err){}
+    try{if(!localStorage.getItem('xiaoyu.hint')){localStorage.setItem('xiaoyu.hint','1');setTimeout(()=>toast('双击左右跳 10 秒 · 长按左侧快退、右侧 2 倍速 · 长按中间打开群岛图'),6000)}}catch(err){}
   }
   else if(a==='save-key'){
     const k=$('keyInput').value.trim();if(!k)return;
@@ -648,6 +692,9 @@ document.addEventListener('click',e=>{
   }
   else if(a==='change-key')askKey();
   else if(a==='save-yt'){const k=$('ytKey').value.trim();if(!k)return;YTAPI.setKey(k);pools={};savePools();renderSheet();toast('YouTube Key 已保存')}
+  else if(a==='set-page'){setPage=b.dataset.p||null;$('reply').hidden=true;renderSheet();$('pbody').scrollTop=0}
+  else if(a==='speed'){setSpeed(+b.dataset.r,true);if($('phone').classList.contains('open'))renderSheet();closePop()}
+  else if(a==='speed-pop')openPop();
   else if(a==='ai-models'){
     const s=aiForm();$('aiStatus').textContent='正在获取模型列表…';
     AI.models(s).then(ms=>{$('aiModels').innerHTML=ms.map(m=>`<option value="${esc(m)}">`).join('');$('aiStatus').textContent=`找到 ${ms.length} 个模型，点模型框选择`}).catch(err=>{$('aiStatus').textContent=`获取失败：${err.message}`});
@@ -661,7 +708,7 @@ document.addEventListener('click',e=>{
     location.reload();
   }
   else if(a==='tab'){
-    if($('phone').classList.contains('open')){tab=b.dataset.tab;$('reply').hidden=true;renderSheet()}
+    if($('phone').classList.contains('open')){tab=b.dataset.tab;setPage=null;$('reply').hidden=true;renderSheet()}
     else openSheet(b.dataset.tab);
   }
   else if(a==='like'){
@@ -729,8 +776,21 @@ document.addEventListener('change',e=>{
 
 /* Picture first: buttons and captions show for 5 s with each video, then leave; a tap brings them back.
    Gestures replace buttons: swipe up/down changes video, double-tap left/right seeks 10 s,
-   long-press left/right keeps rewinding/forwarding until release, long-press in the middle opens the island map. */
-const CALM_MS=5000,SEEK_S=10,HOLD_STEP_S=2.5,HOLD_EVERY_MS=250;
+   long-press left keeps rewinding until release; long-press right plays at 2x until release, and sliding down while
+   holding keeps 2x after release; long-press in the middle opens the island map. */
+const CALM_MS=5000,SEEK_S=10,HOLD_STEP_S=2.5,HOLD_EVERY_MS=250,FAST=2,LOCK_DY=50;
+/* speed: the chosen speed stays for every following video until changed (rail button, settings, or the lock gesture) */
+const SPEEDS=[0.5,0.75,1,1.25,1.5,2];
+let speed=(()=>{try{const v=+localStorage.getItem('xiaoyu.speed');return SPEEDS.includes(v)?v:1}catch(e){return 1}})();
+function setSpeed(r,keep){
+  if(keep){speed=r;try{localStorage.setItem('xiaoyu.speed',String(r))}catch(e){}}
+  YTP.rate(r);$('speedLabel').textContent=`${speed}×`;$('speedBtn').classList.toggle('on',speed!==1);
+}
+function openPop(){
+  $('pop').innerHTML=`<p class="dim">播放速度</p>`+SPEEDS.map(r=>`<button data-act="speed" data-r="${r}" aria-pressed="${r===speed}">${r===1?'正常':r+'×'}</button>`).join('');
+  $('pop').hidden=false;$('popScrim').hidden=false;clearTimeout(wake.t);
+}
+function closePop(){if($('pop').hidden)return;$('pop').hidden=true;$('popScrim').hidden=true;wake()}
 function wake(){
   const ph=$('phone');ph.classList.remove('calm');clearTimeout(wake.t);
   wake.t=setTimeout(function rest(){if(YTP.held&&started&&!overOpen){wake.t=setTimeout(rest,CALM_MS);return}ph.classList.add('calm')},CALM_MS);
@@ -762,24 +822,34 @@ function local(e){
   const r=$('phone').getBoundingClientRect();
   return $('phone').classList.contains('rot')?{x:e.clientY-r.top,y:r.right-e.clientX,w:r.height}:{x:e.clientX-r.left,y:e.clientY-r.top,w:r.width};
 }
-/* holding a side seeks 2.5 s every 250 ms: about 10x speed, both ways (YouTube can't play backwards) */
-let holdT=0;
-function holdSeek(side){
-  const el=$('seek');el.textContent=side<0?'« 快退':'快进 »';el.className='seek show '+(side<0?'l':'r');
-  YTP.seek(side*HOLD_STEP_S);holdT=setInterval(()=>YTP.seek(side*HOLD_STEP_S),HOLD_EVERY_MS);
+/* YouTube can't play backwards, so holding the left side seeks back 2.5 s every 250 ms instead */
+let hold=null;
+function startHold(side,y){
+  const el=$('seek');
+  hold={side,y,locked:false,t:0};
+  if(side<0){el.textContent='« 快退';YTP.seek(-HOLD_STEP_S);hold.t=setInterval(()=>YTP.seek(-HOLD_STEP_S),HOLD_EVERY_MS)}
+  else{el.textContent=`${FAST}× 快进 · 下滑锁定`;YTP.rate(FAST)}
+  el.className='seek show '+(side<0?'l':'r');
 }
-function endHold(){if(!holdT)return false;clearInterval(holdT);holdT=0;$('seek').className='seek';return true}
+function endHold(){
+  if(!hold)return false;
+  clearInterval(hold.t);
+  if(hold.side>0){if(hold.locked){setSpeed(FAST,true);toast(`已锁定 ${FAST}×，点右侧速度按钮可改回`)}else YTP.rate(speed)}
+  hold=null;$('seek').className='seek';return true;
+}
 const touch=$('touch');let t0=null,press=0,tapT=0,lastTap=null,seekUntil=0;
 touch.addEventListener('contextmenu',e=>e.preventDefault());
 touch.addEventListener('pointerdown',e=>{
   t0=local(e);clearTimeout(press);
   press=setTimeout(()=>{
-    const side=t0.x<t0.w/3?-1:t0.x>t0.w*2/3?1:0;t0=null;clearTimeout(tapT);lastTap=null;
+    const side=t0.x<t0.w/3?-1:t0.x>t0.w*2/3?1:0,y=t0.y;t0=null;clearTimeout(tapT);lastTap=null;
     if(!started||overOpen)return;
-    if(side)holdSeek(side);else openSheet('map');
+    if(side)startHold(side,y);else openSheet('map');
   },450);
 });
-touch.addEventListener('pointermove',e=>{if(!t0)return;const p=local(e);if(Math.abs(p.x-t0.x)>10||Math.abs(p.y-t0.y)>10)clearTimeout(press)});
+touch.addEventListener('pointermove',e=>{
+  if(hold&&hold.side>0&&!hold.locked&&local(e).y-hold.y>LOCK_DY){hold.locked=true;$('seek').textContent=`已锁定 ${FAST}×`;navigator.vibrate?.(15)}
+  if(!t0)return;const p=local(e);if(Math.abs(p.x-t0.x)>10||Math.abs(p.y-t0.y)>10)clearTimeout(press)});
 touch.addEventListener('pointercancel',()=>{t0=null;clearTimeout(press);endHold()});
 touch.addEventListener('pointerup',e=>{
   clearTimeout(press);
@@ -818,11 +888,12 @@ $('phone').addEventListener('wheel',e=>{
 setInterval(updatePill,1000);
 load();
 YTP.init({
-  playing(){dropCover()},
+  playing(){dropCover();if(!hold)YTP.rate(speed)},
   ended(){if(!overOpen&&!$('phone').classList.contains('open'))go(1)},
   error(){if(started&&!overOpen)go(1)},
   muted(){$('sound').hidden=false;wake()},
   loadFailed(){toast('YouTube 播放器加载失败，请检查网络')},
 });
-renderSheet();
+renderSheet();setSpeed(speed);
+$('popScrim').addEventListener('click',closePop);
 if(YTAPI.key())prepareFirst();else askKey();
