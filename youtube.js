@@ -10,7 +10,7 @@ const YTAPI={
   today(){return new Date().toLocaleDateString('en-US',{timeZone:'America/Los_Angeles'})},
   /* search.list costs 100 quota units per call, so callers cache results. */
   async search({q,pageToken,lang='zh',duration,region}){
-    const p=new URLSearchParams({part:'snippet',type:'video',videoEmbeddable:'true',videoSyndicated:'true',safeSearch:NIGHT?'none':'moderate',maxResults:'50',q,key:YTAPI.key()});
+    const p=new URLSearchParams({part:'snippet',type:'video',videoEmbeddable:'true',videoSyndicated:'true',safeSearch:'moderate',maxResults:'50',q,key:YTAPI.key()});
     if(lang)p.set('relevanceLanguage',lang);
     if(region)p.set('regionCode',region);
     if(duration)p.set('videoDuration',duration);
@@ -23,20 +23,9 @@ const YTAPI={
       throw e;
     }
     YTAPI.addUnits(100);
-    /* at night safe search is off, so age-restricted videos turn up; the embedded player cannot play them.
-       One videos.list call (1 unit) finds them and they are dropped before anyone sees them. */
-    const bad=NIGHT?await YTAPI.unplayable((d.items||[]).map(x=>x.id?.videoId).filter(Boolean)):new Set();
-    return {next:d.nextPageToken||null,items:(d.items||[]).filter(x=>x.id?.videoId&&!bad.has(x.id.videoId)).map(x=>({
+    return {next:d.nextPageToken||null,items:(d.items||[]).filter(x=>x.id?.videoId).map(x=>({
       id:x.id.videoId,title:decodeEntities(x.snippet.title),channel:decodeEntities(x.snippet.channelTitle),channelId:x.snippet.channelId,desc:decodeEntities(x.snippet.description||'')
     }))};
-  },
-  async unplayable(ids){
-    if(!ids.length)return new Set();
-    try{
-      const r=await fetch('https://www.googleapis.com/youtube/v3/videos?'+new URLSearchParams({part:'contentDetails,status',id:ids.join(','),key:YTAPI.key()}));
-      const d=await r.json().catch(()=>({}));if(!r.ok)return new Set();YTAPI.addUnits(1);
-      return new Set((d.items||[]).filter(x=>typeof x.id==='string'&&(ageLimited(x)||x.status?.embeddable===false)).map(x=>x.id));
-    }catch(e){return new Set()}
   },
   /* A channel's latest uploads: playlistItems (1 unit) + videos for length and embeddability (1 unit),
      against 100 units for one search. Keeps videos up to maxSec long that can play here. */

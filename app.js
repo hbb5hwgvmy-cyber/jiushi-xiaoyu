@@ -1,7 +1,7 @@
 /* 就是小屿 app: daily sailing between islands, moment sessions, and the rules around them. */
 /* Internal names (LINES, stations, edges) come from the first metro-style prototype and are kept so saved logic stays intact.
    In the UI a "line" is a sea (海域), a "station" is an island (岛) and an "edge" is a sailing route (航线). */
-const LINES=NIGHT?NIGHT_SEED.lines:[
+const LINES=[
   {id:'home',name:'在家海',color:'#f2a65a',stops:['film','living','pet'],type:'相近',lx:200,ly:-14},
   {id:'out',name:'出门海',color:'#4da3ff',stops:['travel','sport'],type:'切换',lx:205,ly:318},
 ];
@@ -11,7 +11,7 @@ const CAPS=[null,{k:'day',n:5},{k:'week',n:2},{k:'month',n:1}];
 const capText=c=>!c?'不限量':`每${{day:'天',week:'周',month:'月'}[c.k]}最多 ${c.n} 条`;
 const FALLBACK_ICON='app-lighthouse.svg';
 const s=(id,name,x,y,lab,when,cap,extra)=>({id,name,x,y,lab,when:when||'随时',cap:cap||null,paused:false,icon:`theme-${id}.svg`,...extra});
-let stations=NIGHT?NIGHT_SEED.stations.map(a=>s(...a)):[
+let stations=[
   s('film','电影',60,70,'a',0,0,{en:'Cinema',icon:'theme-film.svg'}),
   s('living','居家',200,40,'a',0,0,{en:'Home & Living',icon:'theme-rent.svg'}),
   s('pet','宠物',340,80,'a',0,{k:'day',n:5},{en:'Pets',icon:'theme-cat.svg'}),
@@ -19,23 +19,20 @@ let stations=NIGHT?NIGHT_SEED.stations.map(a=>s(...a)):[
   s('sport','运动',100,240,'b','仅早上',0,{en:'Sports',icon:'theme-fit.svg'}),
 ];
 /* one line per island, shown when its icon is tapped */
-const ABOUT=NIGHT?NIGHT_SEED.about:{film:'影评、解说和好片段，看懂一部电影',living:'收纳、做饭、慢生活，把家过舒服',pet:'猫狗和小动物的日常',travel:'城市漫步和旅行 vlog，替你出门看看',sport:'跑步、健身和训练日常'};
+const ABOUT={film:'影评、解说和好片段，看懂一部电影',living:'收纳、做饭、慢生活，把家过舒服',pet:'猫狗和小动物的日常',travel:'城市漫步和旅行 vlog，替你出门看看',sport:'跑步、健身和训练日常'};
 const aboutOf=n=>`${n.about||ABOUT[n.id]||`你加的岛：${n.name}`}。${n.paused?'已停航':`${n.when} · ${capText(n.cap)}`}`;
 let edges=[];
 LINES.forEach(l=>l.stops.slice(0,-1).forEach((a,i)=>edges.push({from:a,to:l.stops[i+1],line:l.id,type:l.type,w:1,cut:false})));
-if(NIGHT)edges.push(...NIGHT_SEED.extraEdges.map(e=>({...e})));
-else{
-  edges.push({from:'pet',to:'travel',line:null,type:'相近',w:.8,cut:false});
-  edges.push({from:'sport',to:'film',line:null,type:'切换',w:.8,cut:false});
-}
+edges.push({from:'pet',to:'travel',line:null,type:'相近',w:.8,cut:false});
+edges.push({from:'sport',to:'film',line:null,type:'切换',w:.8,cut:false});
 /* first island of the sample, used when nothing is playing yet */
 const FIRST=stations[0].id;
-let tastes=NIGHT?NIGHT_SEED.tastes:[{tag:'有质感',like:true},{tag:'讲得清楚',like:true},{tag:'生活化',like:true},{tag:'标题党',like:false},{tag:'带货',like:false}];
-let logs=NIGHT?NIGHT_SEED.logs:[{text:'这是示例群岛',from:'原型预置，不是你的真实偏好'}];
+let tastes=[{tag:'有质感',like:true},{tag:'讲得清楚',like:true},{tag:'生活化',like:true},{tag:'标题党',like:false},{tag:'带货',like:false}];
+let logs=[{text:'这是示例群岛',from:'原型预置，不是你的真实偏好'}];
 
 
 /* Search words per island when no AI is connected: Chinese, English and Japanese, so the feed is not limited to one language. */
-const QUERY=NIGHT?NIGHT_SEED.query:{
+const QUERY={
   film:[['电影 推荐 解读','zh'],['film essay','en'],['映画 解説','ja']],
   living:[['居家 生活 vlog','zh'],['slow living home vlog','en'],['丁寧な暮らし','ja']],
   pet:[['猫 狗 日常','zh'],['cute pets daily life','en'],['猫のいる暮らし','ja']],
@@ -68,18 +65,18 @@ let setPage=null,clips=[],idx=-1,enter=0,moment=null,tab='moment',sel={type:'st'
 let plays=[],seen={},pools={},emptyStations=new Set();
 
 /* persistence */
-function save(){try{localStorage.setItem(SK('xiaoyu.v3.state'),JSON.stringify({stations,edges,tastes,logs,plays:plays.slice(-500),seen,liked,shown}))}catch(e){}}
-function savePools(){try{localStorage.setItem(SK('xiaoyu.v3.pools'),JSON.stringify(pools))}catch(e){}}
+function save(){try{localStorage.setItem('xiaoyu.v3.state',JSON.stringify({stations,edges,tastes,logs,plays:plays.slice(-500),seen,liked,shown}))}catch(e){}}
+function savePools(){try{localStorage.setItem('xiaoyu.v3.pools',JSON.stringify(pools))}catch(e){}}
 function load(){
   try{
-    const d=JSON.parse(localStorage.getItem(SK('xiaoyu.v3.state'))||'null');
+    const d=JSON.parse(localStorage.getItem('xiaoyu.v3.state')||'null');
     if(d){
       /* islands from the sample keep their latest positions; rules the user changed are kept */
       const home=Object.fromEntries(stations.map(n=>[n.id,n]));
       stations=d.stations.map(n=>home[n.id]?{...n,x:home[n.id].x,y:home[n.id].y}:n);
       edges=d.edges;tastes=d.tastes;logs=d.logs;plays=d.plays||[];seen=d.seen||{};liked=d.liked||{};shown=d.shown||[];
     }
-    pools=JSON.parse(localStorage.getItem(SK('xiaoyu.v3.pools'))||'{}');
+    pools=JSON.parse(localStorage.getItem('xiaoyu.v3.pools')||'{}');
   }catch(e){}
 }
 
@@ -141,7 +138,7 @@ function setLoading(on,text){$('load').hidden=!on;if(text)$('load').textContent=
 async function aiQueries(n){
   const R=region(),likes=tastes.filter(t=>t.like).map(t=>t.tag),avoids=tastes.filter(t=>!t.like).map(t=>t.tag);
   const d=await AI.json(`你为短视频应用“就是小屿”找 YouTube 视频。主题岛：${n.name}（${n.en||n.name}）。用户喜欢：${likes.join('、')||'无'}；避开：${avoids.join('、')||'无'}。${likedLine()}
-${R.id?`只要${R.name}本地人拍的、关于${R.name}的内容。写 3 个 YouTube 搜索词，都用当地语言（${R.lang}），角度各不相同。`:'写 3 个 YouTube 搜索词：中文、英文、日文各一个。'}${NIGHT?NIGHT_SEED.style:'要生活化又有质感，像一个有品味的人会搜的词，不要标题党。'}
+${R.id?`只要${R.name}本地人拍的、关于${R.name}的内容。写 3 个 YouTube 搜索词，都用当地语言（${R.lang}），角度各不相同。`:'写 3 个 YouTube 搜索词：中文、英文、日文各一个。'}要生活化又有质感，像一个有品味的人会搜的词，不要标题党。
 只回复 JSON：{"queries":[{"q":"搜索词","lang":"语言代码"},…]}`);
   const qs=(d.queries||[]).filter(x=>x&&x.q).map(x=>[String(x.q).slice(0,60),R.id?R.lang:['zh','en','ja'].includes(x.lang)?x.lang:'']);
   if(!qs.length)throw new Error('没有搜索词');
@@ -151,7 +148,7 @@ async function aiScreen(items,n){
   const likes=tastes.filter(t=>t.like).map(t=>t.tag),avoids=tastes.filter(t=>!t.like).map(t=>t.tag);
   const list=items.map(v=>`${v.id} | ${v.title} | ${v.channel} | ${v.desc.slice(0,100).replace(/\s+/g,' ')}`).join('\n');
   const d=await AI.json(`你替用户筛短视频，主题岛：${n.name}（${n.en||n.name}）。用户喜欢：${likes.join('、')||'无'}；避开：${avoids.join('、')||'无'}。${likedLine()}
-${region().id?`用户只想看${region().name}本地的内容，明显不是${region().name}的去掉。`:''}下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。${NIGHT?NIGHT_SEED.style:''}挑出最多 20 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
+${region().id?`用户只想看${region().name}本地的内容，明显不是${region().name}的去掉。`:''}下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。挑出最多 20 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
 只回复 JSON：{"keep":[{"id":"视频 id","zh":"中文标题（原标题是中文就照抄）","why":"不超过 12 个字的推荐理由"}]}
 
 ${list}`);
@@ -169,8 +166,8 @@ ${list}`);
    - Channels learn from you: quick skips push a channel down and after 3 with no full watch it is dropped;
      videos watched through push it up. */
 const READY=3,filling={},SEARCH_STOP=8000,MIN_CHANNELS=3;
-let chanScore=(()=>{try{return JSON.parse(localStorage.getItem(SK('xiaoyu.chan'))||'{}')}catch(e){return {}}})();
-const saveChan=()=>{try{localStorage.setItem(SK('xiaoyu.chan'),JSON.stringify(chanScore))}catch(e){}};
+let chanScore=(()=>{try{return JSON.parse(localStorage.getItem('xiaoyu.chan')||'{}')}catch(e){return {}}})();
+const saveChan=()=>{try{localStorage.setItem('xiaoyu.chan',JSON.stringify(chanScore))}catch(e){}};
 const chanWeight=cid=>{const c=chanScore[cid]||{};return (1+(c.good||0))/(1+(c.skip||0))};
 const chanBanned=cid=>{const c=chanScore[cid]||{};return (c.skip||0)>=3&&!(c.good||0)};
 function poolOf(id){
@@ -183,7 +180,7 @@ function addChannel(pool,cid,from){if(cid&&!pool.channels[cid]&&!chanBanned(cid)
 async function aiChannels(id){
   const n=st(id),R=region(),pool=poolOf(id);
   const d=await AI.json(`为短视频应用推荐 YouTube 频道。主题：${n.name}（${n.en||n.name}）${R.id?`，只要${R.name}本地的频道`:''}。用户喜欢：${likeWords().join('、')||'无'}；避开：${avoidWords().join('、')||'无'}。${likedLine()}
-列出 8 个真实存在、持续更新、做这类短视频且有质感的频道，用它们的 @handle。${NIGHT?NIGHT_SEED.style:''}不确定的不要写。
+列出 8 个真实存在、持续更新、做这类短视频且有质感的频道，用它们的 @handle。不确定的不要写。
 只回复 JSON：{"channels":["@handle1","@handle2"]}`);
   const hs=(d.channels||[]).map(h=>String(h).trim()).filter(h=>/^@[\w.\-]{2,40}$/.test(h)).slice(0,8);
   for(const h of hs){const c=await YTAPI.channel(h).catch(()=>null);if(c)addChannel(pool,c.id,'ai')}
@@ -608,9 +605,9 @@ function renderSugs(){
   const cur=st(clips[idx]?.st)||st(FIRST),prev=clips[idx]?.hop?.from?st(clips[idx].hop.from):null;
   let list;
   if(tab==='set'&&setPage!=='taste')list=[];
-  else if(tab==='moment')list=moment?['再看半小时','再看 15 分钟']:(NIGHT?NIGHT_SEED.sugs.moment:['今晚只看老电影，刷到 11 点半','想看京都散步，看 20 分钟','现在只想看猫']);
+  else if(tab==='moment')list=moment?['再看半小时','再看 15 分钟']:['今晚只看老电影，刷到 11 点半','想看京都散步，看 20 分钟','现在只想看猫'];
   else if(tab==='set')list=['我不喜欢标题党','我喜欢安静的','别再推带货'];
-  else list=[prev?`别从${prev.name}直接跳到${cur.name}`:NIGHT?NIGHT_SEED.sugs.from:'别从宠物直接跳到旅行',NIGHT?NIGHT_SEED.sugs.after:'运动后接电影',`${cur.name}只在周末晚上看`,`暂停${cur.name}`];
+  else list=[prev?`别从${prev.name}直接跳到${cur.name}`:'别从宠物直接跳到旅行','运动后接电影',`${cur.name}只在周末晚上看`,`暂停${cur.name}`];
   $('sugs').hidden=!list.length;$('sugs').innerHTML=list.map(x=>`<button type="button" data-act="say">${esc(x)}</button>`).join('');
 }
 function openSheet(t){
@@ -653,11 +650,9 @@ ${s.provider!=='none'?`<input id="aiKey" type="password" autocomplete="off" plac
 <div class="group"><p class="gl">推荐</p>${row('region',ICON.globe,'内容地区',region().name)}${row('taste',ICON.taste,'口味',`喜欢 ${likes} · 避开 ${avoids}`)}${row('log',ICON.log,'改动记录',`${logs.length} 条`)}</div>
 <div class="group"><p class="gl">展示</p>${row('show',ICON.show,'我的展示岛',`${shown.length} 条`)}</div>
 <div class="group"><p class="gl">连接</p>${row('ai',ICON.ai,'AI',AI.ready()?AI.label():'未连接')}${row('yt',ICON.yt,'YouTube',k?`已设置 · 今日 ${YTAPI.units()} 单位`:'未设置')}</div>
-<div class="group"><p class="gl">世界</p><button class="row world" data-act="world"><span class="ri">${ICON.world}</span><span class="rt">${NIGHT?'回到白天':'夜港'}</span><span class="rv">${NIGHT?'小屿':'18+'}</span><span class="rc">›</span></button></div>
-<div class="group"><button class="row danger" data-act="reset"><span class="rt">${NIGHT?'恢复示例夜港':'恢复示例群岛'}</span></button></div>`;
+<div class="group"><button class="row danger" data-act="reset"><span class="rt">恢复示例群岛</span></button></div>`;
 }
 const ICON={
-  world:'<svg viewBox="0 0 24 24"><path d="M19.500 14.500A8 8 0 0 1 9.500 4.500a8 8 0 1 0 10 10z"/></svg>',
   cc:'<svg viewBox="0 0 24 24"><rect x="3" y="5.500" width="18" height="13" rx="2.500"/><path d="M10.500 10.300a2.300 2.300 0 1 0 0 3.400M17 10.300a2.300 2.300 0 1 0 0 3.400"/></svg>',
   sound:'<svg viewBox="0 0 24 24"><path d="M4 9.500h3.500L12 5.500v13l-4.500-4H4z"/><path d="M15.500 9a4.200 4.200 0 0 1 0 6M18 6.500a7.800 7.800 0 0 1 0 11"/></svg>',
   show:'<svg viewBox="0 0 24 24"><circle cx="12" cy="7.300" r="3"/><path d="M6.300 16c.9-3 3.100-4.500 5.700-4.500s4.800 1.500 5.700 4.500"/><path d="M3.500 19.500c2.800 1.600 5.700 1.600 8.500 0s5.700-1.600 8.500 0"/></svg>',
@@ -854,9 +849,8 @@ document.addEventListener('click',e=>{
     const s=aiForm();AI.save(s);$('aiStatus').textContent='正在测试…';
     AI.json('只回复这个 JSON，不要别的：{"ok":true}',s).then(d=>{$('aiStatus').textContent=d.ok?`连接成功：${AI.label()}`:'连上了，但回复格式不对，换一个模型试试';pools={};savePools();if(started)warmAll()}).catch(err=>{$('aiStatus').textContent=`连接失败：${err.message}`});
   }
-  else if(a==='world')worldGate(NIGHT?'day':'night');
   else if(a==='reset'){
-    try{localStorage.removeItem(SK('xiaoyu.v3.state'));localStorage.removeItem(SK('xiaoyu.v3.pools'))}catch(err){}
+    try{localStorage.removeItem('xiaoyu.v3.state');localStorage.removeItem('xiaoyu.v3.pools')}catch(err){}
     location.reload();
   }
   else if(a==='tab'){
@@ -1110,6 +1104,5 @@ YTP.init({
   muted(){wake()},
   loadFailed(){toast('YouTube 播放器加载失败，请检查网络')},
 });
-if(NIGHT){document.querySelector('.tabs [data-tab=map]').textContent='夜港';$('askInput').placeholder='说一句，比如：今晚只看直拍'}
 renderSheet();setSpeed(speed);
 if(YTAPI.key())prepareFirst();else askKey();
