@@ -639,7 +639,7 @@ document.addEventListener('click',e=>{
   else if(a==='begin'){
     closeOver(false);started=true;YTP.wantSound=true;YTP.held=false;
     showClip();const c=clips[idx];if(c.hop&&c.hop.transfer)transferCard(c);
-    try{if(!localStorage.getItem('xiaoyu.hint')){localStorage.setItem('xiaoyu.hint','1');setTimeout(()=>toast('双击左右两侧快退、快进 · 长按画面打开群岛图'),6000)}}catch(err){}
+    try{if(!localStorage.getItem('xiaoyu.hint')){localStorage.setItem('xiaoyu.hint','1');setTimeout(()=>toast('双击左右跳 10 秒 · 长按左右连续快退快进 · 长按中间打开群岛图'),6000)}}catch(err){}
   }
   else if(a==='save-key'){
     const k=$('keyInput').value.trim();if(!k)return;
@@ -728,8 +728,9 @@ document.addEventListener('change',e=>{
 });
 
 /* Picture first: buttons and captions show for 5 s with each video, then leave; a tap brings them back.
-   Gestures replace buttons: swipe up/down changes video, double-tap left/right seeks 10 s, long-press opens the island map. */
-const CALM_MS=5000,SEEK_S=10;
+   Gestures replace buttons: swipe up/down changes video, double-tap left/right seeks 10 s,
+   long-press left/right keeps rewinding/forwarding until release, long-press in the middle opens the island map. */
+const CALM_MS=5000,SEEK_S=10,HOLD_STEP_S=2.5,HOLD_EVERY_MS=250;
 function wake(){
   const ph=$('phone');ph.classList.remove('calm');clearTimeout(wake.t);
   wake.t=setTimeout(function rest(){if(YTP.held&&started&&!overOpen){wake.t=setTimeout(rest,CALM_MS);return}ph.classList.add('calm')},CALM_MS);
@@ -761,16 +762,28 @@ function local(e){
   const r=$('phone').getBoundingClientRect();
   return $('phone').classList.contains('rot')?{x:e.clientY-r.top,y:r.right-e.clientX,w:r.height}:{x:e.clientX-r.left,y:e.clientY-r.top,w:r.width};
 }
+/* holding a side seeks 2.5 s every 250 ms: about 10x speed, both ways (YouTube can't play backwards) */
+let holdT=0;
+function holdSeek(side){
+  const el=$('seek');el.textContent=side<0?'« 快退':'快进 »';el.className='seek show '+(side<0?'l':'r');
+  YTP.seek(side*HOLD_STEP_S);holdT=setInterval(()=>YTP.seek(side*HOLD_STEP_S),HOLD_EVERY_MS);
+}
+function endHold(){if(!holdT)return false;clearInterval(holdT);holdT=0;$('seek').className='seek';return true}
 const touch=$('touch');let t0=null,press=0,tapT=0,lastTap=null,seekUntil=0;
 touch.addEventListener('contextmenu',e=>e.preventDefault());
 touch.addEventListener('pointerdown',e=>{
   t0=local(e);clearTimeout(press);
-  press=setTimeout(()=>{t0=null;clearTimeout(tapT);lastTap=null;if(started&&!overOpen)openSheet('map')},550);
+  press=setTimeout(()=>{
+    const side=t0.x<t0.w/3?-1:t0.x>t0.w*2/3?1:0;t0=null;clearTimeout(tapT);lastTap=null;
+    if(!started||overOpen)return;
+    if(side)holdSeek(side);else openSheet('map');
+  },450);
 });
 touch.addEventListener('pointermove',e=>{if(!t0)return;const p=local(e);if(Math.abs(p.x-t0.x)>10||Math.abs(p.y-t0.y)>10)clearTimeout(press)});
-touch.addEventListener('pointercancel',()=>{t0=null;clearTimeout(press)});
+touch.addEventListener('pointercancel',()=>{t0=null;clearTimeout(press);endHold()});
 touch.addEventListener('pointerup',e=>{
   clearTimeout(press);
+  if(endHold()){wake();return}
   if(!t0)return;
   const p=local(e),dy=p.y-t0.y,dx=p.x-t0.x;t0=null;
   if(Math.abs(dy)>48&&Math.abs(dy)>Math.abs(dx)){go(dy<0?1:-1);return}
