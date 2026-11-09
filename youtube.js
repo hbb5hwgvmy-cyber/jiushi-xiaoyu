@@ -8,9 +8,10 @@ const YTAPI={
   addUnits(n){try{localStorage.setItem('tikfix.units',JSON.stringify({day:YTAPI.today(),n:YTAPI.units()+n}))}catch(e){}},
   today(){return new Date().toDateString()},
   /* search.list costs 100 quota units per call, so callers cache results. */
-  async search({q,pageToken,lang='zh',duration}){
+  async search({q,pageToken,lang='zh',duration,region}){
     const p=new URLSearchParams({part:'snippet',type:'video',videoEmbeddable:'true',videoSyndicated:'true',safeSearch:'moderate',maxResults:'50',q,key:YTAPI.key()});
     if(lang)p.set('relevanceLanguage',lang);
+    if(region)p.set('regionCode',region);
     if(duration)p.set('videoDuration',duration);
     if(pageToken)p.set('pageToken',pageToken);
     const r=await fetch('https://www.googleapis.com/youtube/v3/search?'+p);
@@ -29,13 +30,13 @@ const YTAPI={
 function decodeEntities(t){const e=document.createElement('textarea');e.innerHTML=t;return e.value}
 
 const YTP={
-  player:null,ready:false,wantSound:false,handlers:{},pendingId:null,
+  player:null,ready:false,cc:(()=>{try{return localStorage.getItem('xiaoyu.cc')==='1'}catch(e){return false}})(),wantSound:false,handlers:{},pendingId:null,
   init(handlers){
     YTP.handlers=handlers;
     const create=()=>{
       YTP.player=new YT.Player('ytInner',{
         width:'100%',height:'100%',
-        playerVars:{playsinline:1,rel:0,controls:0,disablekb:1,iv_load_policy:3,origin:location.origin,fs:0,enablejsapi:1},
+        playerVars:{playsinline:1,rel:0,controls:0,disablekb:1,iv_load_policy:3,hl:'zh-CN',cc_lang_pref:'zh-Hans',cc_load_policy:YTP.cc?1:0,origin:location.origin,fs:0,enablejsapi:1},
         events:{
           onReady(){YTP.ready=true;handlers.ready?.();if(YTP.pendingId){const i=YTP.pendingId;YTP.pendingId=null;YTP.load(i)}},
           onStateChange(e){
@@ -70,6 +71,21 @@ const YTP={
   play(){YTP.held=false;if(YTP.ready)YTP.player.playVideo?.()},
   toggle(){if(!YTP.ready)return;if(YTP.player.getPlayerState?.()===YT.PlayerState.PLAYING)YTP.pause();else YTP.play()},
   sound(){YTP.wantSound=true;if(YTP.ready){YTP.player.unMute();YTP.player.playVideo()}},
+  /* The caption calls (loadModule / getOption / setOption 'captions') are not in YouTube's documented API but work
+     in the embed; a Chinese track is used when there is one, otherwise YouTube's translation into zh-Hans. */
+  setCC(on){YTP.cc=on;if(!YTP.ready)return;try{if(on){YTP.player.loadModule('captions');YTP.captions()}else YTP.player.unloadModule('captions')}catch(e){}},
+  captions(){
+    clearTimeout(YTP.ccT);let tries=0;
+    const pick=()=>{
+      if(!YTP.cc)return;
+      let list=[];try{list=YTP.player.getOption('captions','tracklist')||[]}catch(e){}
+      if(!list.length){if(++tries<8)YTP.ccT=setTimeout(pick,600);else YTP.handlers.noCaptions?.();return}
+      const hans=list.find(t=>/^zh(-Hans|-CN|-SG)?$/i.test(t.languageCode));
+      try{YTP.player.setOption('captions','track',hans?{languageCode:hans.languageCode}:{languageCode:list[0].languageCode,translationLanguage:{languageCode:'zh-Hans',languageName:'中文（简体）'}})}catch(e){}
+    };
+    try{YTP.player.loadModule('captions')}catch(e){}
+    YTP.ccT=setTimeout(pick,400);
+  },
   rate(r){if(!YTP.ready)return;try{YTP.player.setPlaybackRate(r)}catch(e){}},
   seek(d){if(!YTP.ready)return;try{const t=YTP.player.getCurrentTime(),n=YTP.player.getDuration();YTP.player.seekTo(Math.max(0,Math.min(n?n-1:1e9,t+d)),true)}catch(e){}},
   progress(){try{const d=YTP.player.getDuration(),t=YTP.player.getCurrentTime();return d>0?t/d:0}catch(e){return 0}},

@@ -35,6 +35,19 @@ const QUERY={
   sport:[['跑步 健身 日常','zh'],['running training vlog','en'],['ランニング 習慣','ja']],
 };
 const POOL_TTL=24*3600*1000;
+/* Content region: whole world, or one country. A country narrows YouTube search (regionCode + its language) and,
+   with AI on, the search words are written in that country's language about things made there.
+   YouTube has no region code for mainland China. */
+const REGIONS=[
+  {id:'',name:'全世界'},
+  {id:'TW',name:'台湾',en:'Taiwan',lang:'zh-Hant'},{id:'HK',name:'香港',en:'Hong Kong',lang:'zh-Hant'},
+  {id:'JP',name:'日本',en:'Japan',lang:'ja'},{id:'KR',name:'韩国',en:'Korea',lang:'ko'},
+  {id:'TH',name:'泰国',en:'Thailand',lang:'th'},{id:'VN',name:'越南',en:'Vietnam',lang:'vi'},{id:'IN',name:'印度',en:'India',lang:'hi'},
+  {id:'US',name:'美国',en:'USA',lang:'en'},{id:'CA',name:'加拿大',en:'Canada',lang:'en'},{id:'MX',name:'墨西哥',en:'Mexico',lang:'es'},{id:'BR',name:'巴西',en:'Brazil',lang:'pt'},
+  {id:'GB',name:'英国',en:'UK',lang:'en'},{id:'FR',name:'法国',en:'France',lang:'fr'},{id:'DE',name:'德国',en:'Germany',lang:'de'},
+  {id:'IT',name:'意大利',en:'Italy',lang:'it'},{id:'ES',name:'西班牙',en:'Spain',lang:'es'},{id:'AU',name:'澳大利亚',en:'Australia',lang:'en'},
+];
+const region=()=>{try{return REGIONS.find(r=>r.id===localStorage.getItem('xiaoyu.region'))||REGIONS[0]}catch(e){return REGIONS[0]}};
 
 const $=id=>document.getElementById(id);
 const st=id=>stations.find(x=>x.id===id);
@@ -92,11 +105,11 @@ function setLoading(on,text){$('load').hidden=!on;if(text)$('load').textContent=
 /* AI finds the videos: it writes the search words for an island (zh/en/ja), then screens what YouTube returns.
    Without AI the fixed words in QUERY are used and nothing is screened. */
 async function aiQueries(n){
-  const likes=tastes.filter(t=>t.like).map(t=>t.tag),avoids=tastes.filter(t=>!t.like).map(t=>t.tag);
+  const R=region(),likes=tastes.filter(t=>t.like).map(t=>t.tag),avoids=tastes.filter(t=>!t.like).map(t=>t.tag);
   const d=await AI.json(`你为短视频应用“就是小屿”找 YouTube 视频。主题岛：${n.name}（${n.en||n.name}）。用户喜欢：${likes.join('、')||'无'}；避开：${avoids.join('、')||'无'}。
-写 3 个 YouTube 搜索词：中文、英文、日文各一个。要生活化又有质感，像一个有品味的人会搜的词，不要标题党。
-只回复 JSON：{"queries":[{"q":"中文搜索词","lang":"zh"},{"q":"English query","lang":"en"},{"q":"日本語の検索語","lang":"ja"}]}`);
-  const qs=(d.queries||[]).filter(x=>x&&x.q).map(x=>[String(x.q).slice(0,60),['zh','en','ja'].includes(x.lang)?x.lang:'']);
+${R.id?`只要${R.name}本地人拍的、关于${R.name}的内容。写 3 个 YouTube 搜索词，都用当地语言（${R.lang}），角度各不相同。`:'写 3 个 YouTube 搜索词：中文、英文、日文各一个。'}要生活化又有质感，像一个有品味的人会搜的词，不要标题党。
+只回复 JSON：{"queries":[{"q":"搜索词","lang":"语言代码"},…]}`);
+  const qs=(d.queries||[]).filter(x=>x&&x.q).map(x=>[String(x.q).slice(0,60),R.id?R.lang:['zh','en','ja'].includes(x.lang)?x.lang:'']);
   if(!qs.length)throw new Error('没有搜索词');
   return qs;
 }
@@ -104,7 +117,7 @@ async function aiScreen(items,n){
   const likes=tastes.filter(t=>t.like).map(t=>t.tag),avoids=tastes.filter(t=>!t.like).map(t=>t.tag);
   const list=items.map(v=>`${v.id} | ${v.title} | ${v.channel} | ${v.desc.slice(0,100).replace(/\s+/g,' ')}`).join('\n');
   const d=await AI.json(`你替用户筛短视频，主题岛：${n.name}（${n.en||n.name}）。用户喜欢：${likes.join('、')||'无'}；避开：${avoids.join('、')||'无'}。
-下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。挑出最多 15 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
+${region().id?`用户只想看${region().name}本地的内容，明显不是${region().name}的去掉。`:''}下面每行是一条 YouTube 视频：id | 标题 | 频道 | 简介。挑出最多 15 条真正值得看的，去掉标题党、带货、搬运、和主题无关或用户避开的内容，按值得看的程度排序。
 只回复 JSON：{"keep":[{"id":"视频 id","zh":"中文标题（原标题是中文就照抄）","why":"不超过 16 个字的推荐理由"}]}
 
 ${list}`);
@@ -117,7 +130,8 @@ async function nextFromStation(id){
   if(!pool||Date.now()-pool.at>POOL_TTL)pool=pools[id]={items:[],tokens:{},qi:0,at:0,queries:null,done:{}};
   const useAI=AI.ready();
   if(!pool.queries){
-    pool.queries=QUERY[id]||[[n.name,'zh'],[n.en||n.name,'en']];
+    const R=region(),base=QUERY[id]||[[n.name,'zh'],[n.en||n.name,'en']];
+    pool.queries=!R.id?base:R.lang==='ja'?base.filter(q=>q[1]==='ja'):R.lang.startsWith('zh')?base.filter(q=>q[1]==='zh'):[[`${(base.find(q=>q[1]==='en')||base[0])[0]} ${R.en}`,R.lang]];
     if(useAI){setLoading(true,'AI 正在想搜索词…');try{pool.queries=await aiQueries(n);pool.byAI=true}catch(e){toast('AI 没有回应，先用默认搜索词')}finally{setLoading(false)}}
   }
   for(let round=0;round<=pool.queries.length;round++){
@@ -132,7 +146,7 @@ async function nextFromStation(id){
     setLoading(true,'正在找片…');
     let found;
     try{
-      const r=await YTAPI.search({q,lang,pageToken:pool.tokens[qi]||undefined,duration:'short'});
+      const r=await YTAPI.search({q,lang,region:region().id,pageToken:pool.tokens[qi]||undefined,duration:'short'});
       pool.tokens[qi]=r.next;if(!r.next)pool.done[qi]=true;found=r.items;
     }catch(e){setLoading(false);apiFail(e);throw e}
     if(useAI&&found.length){
@@ -190,7 +204,7 @@ async function nextMoment(){
     if(m.exhausted)return null;
     setLoading(true);
     try{
-      const r=await YTAPI.search({q:m.query,pageToken:m.next||undefined});
+      const r=await YTAPI.search({q:m.query,region:region().id,lang:region().lang,pageToken:m.next||undefined});
       m.items=m.items.concat(r.items);m.next=r.next;if(!r.next)m.exhausted=true;
     }catch(e){apiFail(e);throw e}finally{setLoading(false)}
   }
@@ -222,11 +236,11 @@ function routeAround(c){
 const PEN=`<svg class="nl" viewBox="0 0 18 8" aria-hidden="true"><path d="M1 5C5 2.500 9 6.500 17 3.500"/></svg>`;
 function drawNode(c){
   const n=st(c.st)||{},name=c.moment?(c.scene||n.name||''):n.name||'',r=routeAround(c);
-  const isle=(id,o)=>`<span class="nb" style="opacity:${o}"><img src="icons/${esc(st(id).icon||FALLBACK_ICON)}" alt=""></span>`;
+  const isle=(id,o)=>`<button class="nb" data-act="hop" data-id="${esc(id)}" style="opacity:${o}" aria-label="去${esc(st(id).name)}岛"><img src="icons/${esc(st(id).icon||FALLBACK_ICON)}" alt=""></button>`;
   const side=(ids,toward)=>ids.map((id,i)=>{const o=(toward?ids.length-1-i:i)===0?NEAR_OPACITY:FAR_OPACITY;return toward?isle(id,o)+`<span style="opacity:${o}">${PEN}</span>`:`<span style="opacity:${o}">${PEN}</span>`+isle(id,o)}).join('');
   $('nodeBefore').innerHTML=side(r.before,true);$('nodeAfter').innerHTML=side(r.after,false);
   $('nodeIcon').innerHTML=`<img src="icons/${esc(n.icon||FALLBACK_ICON)}" alt="">`;
-  $('nodeName').textContent=name;$('node').setAttribute('aria-label',`当前小岛：${name}。点按打开群岛图`);
+  $('nodeName').textContent=name;$('node').querySelector('.ncur').setAttribute('aria-label',`当前小岛：${name}。点按打开群岛图`);
   $('node').hidden=false;$('node').classList.add('named');clearTimeout(drawNode.t);drawNode.t=setTimeout(()=>$('node').classList.remove('named'),2200);
 }
 function showClip(){
@@ -508,6 +522,7 @@ function settingsHTML(){
   if(setPage==='yt')return backBar('YouTube')+`<p class="dim">用你自己的 YouTube Data API Key 搜视频。只保存在这台手机上。</p>
 <div class="setting"><input id="ytKey" autocomplete="off" placeholder="${k?'已设置，粘贴新的可替换':'粘贴 YouTube Data API Key'}" aria-label="YouTube API Key"><div class="btns"><button class="btn prime" data-act="save-yt">保存</button></div></div>
 <p class="dim">今天估算已用配额 ${YTAPI.units()} / 10000 单位，每次搜索 100 单位。</p>`;
+  if(setPage==='region')return backBar('内容地区')+`<p class="dim">选一个国家，就只找那里的本地内容；选全世界则不限。开了 AI 时，搜索词会用当地语言写，标题会翻译成中文。</p><div class="group">${REGIONS.map(r=>`<button class="row" data-act="region" data-r="${r.id}"><span class="rt">${r.name}</span><span class="rv">${r.en||''}</span><span class="rc">${r.id===region().id?'✓':''}</span></button>`).join('')}</div>`;
   if(setPage==='ai'){
     const compat=s.provider==='compat',preset=AI_PRESETS.find(x=>x.id===s.preset)||AI_PRESETS[0];
     return backBar('AI')+`<p class="dim">AI 替你写搜索词、筛视频、听懂你说的话。Key 只发给你选的这一家。</p>
@@ -521,13 +536,14 @@ ${s.provider!=='none'?`<input id="aiKey" type="password" autocomplete="off" plac
   const row=(pg,icon,title,val)=>`<button class="row" data-act="set-page" data-p="${pg}"><span class="ri">${icon}</span><span class="rt">${title}</span><span class="rv">${esc(val)}</span><span class="rc">›</span></button>`;
   const rates=SPEEDS.map(r=>`<button data-act="speed" data-r="${r}" aria-pressed="${r===speed}">${r}×</button>`).join('');
   return `<div class="group"><p class="gl">播放</p><div class="row static"><span class="ri">${ICON.speed}</span><span class="rt">速度</span></div><div class="seg wide">${rates}</div></div>
-<div class="group"><p class="gl">推荐</p>${row('taste',ICON.taste,'口味',`喜欢 ${likes} · 避开 ${avoids}`)}${row('log',ICON.log,'改动记录',`${logs.length} 条`)}</div>
+<div class="group"><p class="gl">推荐</p>${row('region',ICON.globe,'内容地区',region().name)}${row('taste',ICON.taste,'口味',`喜欢 ${likes} · 避开 ${avoids}`)}${row('log',ICON.log,'改动记录',`${logs.length} 条`)}</div>
 <div class="group"><p class="gl">连接</p>${row('ai',ICON.ai,'AI',AI.ready()?AI.label():'未连接')}${row('yt',ICON.yt,'YouTube',k?`已设置 · 今日 ${YTAPI.units()} 单位`:'未设置')}</div>
 <div class="group"><button class="row danger" data-act="reset"><span class="rt">恢复示例群岛</span></button></div>`;
 }
 const ICON={
   speed:'<svg viewBox="0 0 24 24"><path d="M4.500 16a7.500 7.500 0 1 1 15 0"/><path d="M12 16l4-5"/></svg>',
   taste:'<svg viewBox="0 0 24 24"><path d="M12 20s-7.500-4.600-7.500-10.200A4.300 4.300 0 0 1 12 7.200a4.300 4.300 0 0 1 7.500 2.600C19.500 15.400 12 20 12 20z"/></svg>',
+  globe:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.500"/><path d="M3.500 12h17M12 3.500c2.500 2.600 2.500 14.400 0 17M12 3.500c-2.500 2.600-2.500 14.400 0 17"/></svg>',
   log:'<svg viewBox="0 0 24 24"><path d="M6 5h12M6 10h12M6 15h8M6 20h5"/></svg>',
   ai:'<svg viewBox="0 0 24 24"><path d="M12 3l1.800 4.700L18.500 9.500l-4.700 1.800L12 16l-1.800-4.700L5.500 9.500l4.700-1.800z"/><path d="M18 15l.8 2.200L21 18l-2.200.8L18 21l-.8-2.200L15 18l2.200-.8z"/></svg>',
   yt:'<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3.500"/><path d="M10.500 9.500l4 2.500-4 2.500z"/></svg>',
@@ -738,8 +754,14 @@ document.addEventListener('click',e=>{
   else if(a==='cyc-when')cyc('when');
   else if(a==='cyc-cap')cyc('cap');
   else if(a==='pause'||a==='resume'){const r=applyAction({type:'set_station',station:sel.id,paused:a==='pause'},'你手动修改');renderSheet();showReply(r,true)}
-  else if(a==='jump'){
-    const id=sel.id,from=clips[idx]?.st,l=linesAt(id)[0]?.id||clips[idx]?.line||'home';
+  else if(a==='jump')jumpTo(sel.id);
+  else if(a==='hop'){jumpTo(b.dataset.id)}
+  else if(a==='cc')setCC(!YTP.cc);
+  else if(a==='region'){try{localStorage.setItem('xiaoyu.region',b.dataset.r)}catch(err){}pools={};savePools();renderSheet();toast(`内容地区：${region().name}。下一条起生效`)}
+});
+function jumpTo(id){
+    const from=clips[idx]?.st,l=linesAt(id)[0]?.id||clips[idx]?.line||'home';
+    if(!st(id)||id===from||moment)return;
     closeSheet();
     (async()=>{
       try{
@@ -750,8 +772,11 @@ document.addEventListener('click',e=>{
         idx++;showClip();transferCard(clips[idx]);
       }catch(err){}
     })();
-  }
-  else if(a==='edge-cut'||a==='edge-res'||a==='edge-keep'){
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]');if(!b)return;
+  const a=b.dataset.act;
+  if(a==='edge-cut'||a==='edge-res'||a==='edge-keep'){
     const ed=edges.find(x=>edgeKey(x)===sel.id),t=`${st(ed.from).name} → ${st(ed.to).name}`;
     mutate(()=>{if(a==='edge-cut')ed.cut=true;if(a==='edge-res')ed.cut=false;if(a==='edge-keep'){ed.type='相近';ed.w=1}},`${a==='edge-cut'?'已剪掉':a==='edge-res'?'已恢复':'已转正'} ${t}`,'你手动修改');
     renderSheet();showReply(logs[logs.length-1].text,true);
@@ -801,6 +826,12 @@ let speed=(()=>{try{const v=+localStorage.getItem('xiaoyu.speed');return SPEEDS.
 function setSpeed(r,keep){
   if(keep){speed=r;try{localStorage.setItem('xiaoyu.speed',String(r))}catch(e){}}
   YTP.rate(r);$('speedLabel').textContent=`${speed}×`;$('speedBtn').classList.toggle('on',speed!==1);
+}
+/* captions: Simplified Chinese, from a Chinese track or YouTube's own translation of another one */
+function setCC(on){
+  YTP.setCC(on);$('ccBtn').classList.toggle('on',on);
+  try{localStorage.setItem('xiaoyu.cc',on?'1':'')}catch(e){}
+  toast(on?'字幕：简体中文':'字幕已关');
 }
 function openPop(){
   $('pop').innerHTML=`<p class="dim">播放速度</p>`+SPEEDS.map(r=>`<button data-act="speed" data-r="${r}" aria-pressed="${r===speed}">${r===1?'正常':r+'×'}</button>`).join('');
@@ -904,12 +935,13 @@ $('phone').addEventListener('wheel',e=>{
 setInterval(updatePill,1000);
 load();
 YTP.init({
-  playing(){dropCover();if(!hold)YTP.rate(speed)},
+  playing(){dropCover();if(!hold)YTP.rate(speed);if(YTP.cc)YTP.captions()},
+  noCaptions(){toast('这条视频没有字幕')},
   ended(){if(!overOpen&&!$('phone').classList.contains('open'))go(1)},
   error(){if(started&&!overOpen)go(1)},
   muted(){$('sound').hidden=false;wake()},
   loadFailed(){toast('YouTube 播放器加载失败，请检查网络')},
 });
-renderSheet();setSpeed(speed);
+renderSheet();setSpeed(speed);$('ccBtn').classList.toggle('on',YTP.cc);
 $('popScrim').addEventListener('click',closePop);
 if(YTAPI.key())prepareFirst();else askKey();

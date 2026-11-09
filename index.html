@@ -23,11 +23,12 @@
     <div class="meta" id="meta"><b id="metaBy"></b><span id="metaTitle"></span><em id="metaWhy" hidden></em><a id="metaLink" target="_blank" rel="noopener">在 YouTube 打开</a></div>
     <button class="sound" id="sound" data-act="unmute" hidden>轻点开声音</button>
     <div class="load" id="load" hidden>正在找片…</div>
-    <button class="node" id="node" data-act="tab" data-tab="map" aria-label="当前小岛，点按打开群岛图" hidden><span class="nside" id="nodeBefore"></span><span class="ncur"><span id="nodeIcon"></span><span id="nodeName"></span></span><span class="nside" id="nodeAfter"></span></button>
+    <div class="node" id="node" hidden><span class="nside" id="nodeBefore"></span><button class="ncur" data-act="tab" data-tab="map" aria-label="当前小岛，点按打开群岛图"><span id="nodeIcon"></span><span id="nodeName"></span></button><span class="nside" id="nodeAfter"></span></div>
     <button class="pill" id="pill" data-act="tab" data-tab="moment" hidden><span id="pillName"></span><time id="pillTime"></time></button>
     <div class="rail">
       <button data-act="turn" aria-label="横屏全屏"><svg viewBox="0 0 24 24"><rect x="3.500" y="7" width="17" height="10" rx="2"/><path d="M7 4.500h3M14 19.500h3"/></svg></button>
       <button data-act="speed-pop" id="speedBtn" aria-label="播放速度"><span id="speedLabel">1×</span></button>
+      <button data-act="cc" id="ccBtn" aria-label="简体中文字幕"><svg viewBox="0 0 24 24"><rect x="3" y="5.500" width="18" height="13" rx="2.500"/><path d="M10.500 10.300a2.300 2.300 0 1 0 0 3.400M17 10.300a2.300 2.300 0 1 0 0 3.400"/></svg></button>
       <button data-act="like" id="like" aria-label="收藏"><svg viewBox="0 0 24 24"><path d="M12 20s-7.500-4.600-7.500-10.200A4.300 4.300 0 0 1 12 7.200a4.300 4.300 0 0 1 7.500 2.600C19.500 15.400 12 20 12 20z"/></svg></button>
       <button data-act="tab" data-tab="moment" aria-label="说现在想看什么"><svg viewBox="0 0 24 24"><path d="M4 5.500h16v11H10l-4.500 3.500v-3.500H4z"/></svg></button>
       <button data-act="tab" data-tab="map" aria-label="打开群岛图"><svg viewBox="0 0 24 24"><path d="M9 14c.8-4.500 5.200-4.500 6 0z"/><path d="M3.500 18c2.800 2 5.700 2 8.500 0s5.700-2 8.500 0"/></svg></button>
